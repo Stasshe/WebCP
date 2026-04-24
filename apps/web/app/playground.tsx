@@ -51,34 +51,63 @@ function cloneState(state: DebugState): DebugState {
     ...state,
     output: { ...state.output },
     error: state.error ? { ...state.error } : null,
-    callStack: state.callStack.map((frame) => ({ ...frame })),
-    localVars: state.localVars.map((scope) => ({
-      ...scope,
-      vars: scope.vars.map((variable) => ({ ...variable })),
+    callStack: state.callStack.map((f) => ({ ...f })),
+    localVars: state.localVars.map((s) => ({
+      ...s,
+      vars: s.vars.map((v) => ({ ...v })),
     })),
-    globalVars: state.globalVars.map((variable) => ({ ...variable })),
-    arrays: state.arrays.map((array) => ({
-      ...array,
-      values: [...array.values],
-    })),
-    watchList: state.watchList.map((watch) => ({ ...watch })),
+    globalVars: state.globalVars.map((v) => ({ ...v })),
+    arrays: state.arrays.map((a) => ({ ...a, values: [...a.values] })),
+    watchList: state.watchList.map((w) => ({ ...w })),
   };
 }
 
-function lineNumberLabel(line: number): string {
-  return line.toString().padStart(2, "0");
-}
-
-function getArrayLabel(array: ArrayView): string {
-  return array.dynamic ? `vector#${array.ref}` : `array#${array.ref}`;
+function getArrayLabel(a: ArrayView): string {
+  return a.dynamic ? `vector#${a.ref}` : `array#${a.ref}`;
 }
 
 function getScopeTitle(scope: ScopeView, index: number): string {
   if (scope.name.startsWith("scope#")) {
-    return index === 0 ? "Current scope" : `Outer scope ${index}`;
+    return index === 0 ? "current scope" : `outer scope ${index}`;
   }
   return scope.name;
 }
+
+// ── Icon primitives ──────────────────────────────────────────────────────────
+const I = {
+  // codicon-style SVG paths (16×16 viewBox)
+  Launch: () => (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M5 3.5l7 4.5-7 4.5V3.5z"/>
+    </svg>
+  ),
+  Continue: () => (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M4 3.5l5 4.5-5 4.5V3.5zm6 0h1.5v9H10V3.5z"/>
+    </svg>
+  ),
+  Restart: () => (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 1 1 .908-.416A6 6 0 1 1 8 2v1z"/>
+      <path d="M8 2l2 2-2 2V2z"/>
+    </svg>
+  ),
+  StepInto: () => (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M8 1v8M5 6l3 3 3-3M3 13h10" stroke="currentColor" strokeWidth="1.4" fill="none"/>
+    </svg>
+  ),
+  StepOver: () => (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M4 4a4 4 0 0 1 8 0v5M9 6l3 3-3 3" stroke="currentColor" strokeWidth="1.4" fill="none"/>
+    </svg>
+  ),
+  StepOut: () => (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M8 15V7M5 10l3-3 3 3M3 3h10" stroke="currentColor" strokeWidth="1.4" fill="none"/>
+    </svg>
+  ),
+};
 
 export function Playground() {
   const [source, setSource] = useState(starterSource);
@@ -90,22 +119,22 @@ export function Playground() {
 
   const sessionRef = useRef<DebugSession | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
-  const gutterRef = useRef<HTMLDivElement | null>(null);
+  const gutterInnerRef = useRef<HTMLDivElement | null>(null);
 
   const sourceLines = useMemo(() => source.split("\n"), [source]);
   const hasSession = sessionRef.current !== null;
-  const canStep = hasSession && execution.status !== "done" && execution.status !== "error";
+  const canStep =
+    hasSession &&
+    execution.status !== "done" &&
+    execution.status !== "error";
 
-  const syncBreakpointState = (session: DebugSession | null, nextBreakpoints: number[]) => {
-    if (session === null) {
-      return;
-    }
-    for (const line of session.listBreakpoints()) {
-      session.removeBreakpoint(line);
-    }
-    for (const line of nextBreakpoints) {
-      session.setBreakpoint(line);
-    }
+  const syncBreakpointState = (
+    session: DebugSession | null,
+    next: number[]
+  ) => {
+    if (!session) return;
+    for (const l of session.listBreakpoints()) session.removeBreakpoint(l);
+    for (const l of next) session.setBreakpoint(l);
   };
 
   const resetExecution = () => {
@@ -114,10 +143,10 @@ export function Playground() {
   };
 
   const withFreshSession = (): DebugSession => {
-    const session = new DebugSession(source, input);
-    syncBreakpointState(session, breakpoints);
-    sessionRef.current = session;
-    return session;
+    const s = new DebugSession(source, input);
+    syncBreakpointState(s, breakpoints);
+    sessionRef.current = s;
+    return s;
   };
 
   const applyState = (state: DebugState) => {
@@ -126,261 +155,267 @@ export function Playground() {
   };
 
   const runAction = (
-    action: (session: DebugSession) => DebugState,
-    options: { restart?: boolean } = {},
+    action: (s: DebugSession) => DebugState,
+    opts: { restart?: boolean } = {}
   ) => {
     startTransition(() => {
-      const session =
-        options.restart || sessionRef.current === null ? withFreshSession() : sessionRef.current;
-      const nextState = action(session);
-      applyState(nextState);
+      const s =
+        opts.restart || !sessionRef.current
+          ? withFreshSession()
+          : sessionRef.current;
+      applyState(action(s));
     });
   };
 
-  const handleLaunchAndBreak = () => {
-    runAction((session) => session.stepInto(), { restart: true });
-  };
-
-  const handleRestart = () => {
-    runAction((session) => session.stepInto(), { restart: true });
-  };
-
-  const handleRunToEnd = () => {
-    runAction((session) => session.run(), { restart: isDirty });
-  };
-
-  const handleStepInto = () => {
-    runAction((session) => session.stepInto(), { restart: isDirty });
-  };
-
-  const handleStepOver = () => {
-    runAction((session) => session.stepOver(), { restart: isDirty });
-  };
-
-  const handleStepOut = () => {
-    runAction((session) => session.stepOut(), { restart: isDirty });
-  };
+  const handleLaunch    = () => runAction((s) => s.stepInto(), { restart: true });
+  const handleRestart   = () => runAction((s) => s.stepInto(), { restart: true });
+  const handleContinue  = () => runAction((s) => s.run(),      { restart: isDirty });
+  const handleStepInto  = () => runAction((s) => s.stepInto(), { restart: isDirty });
+  const handleStepOver  = () => runAction((s) => s.stepOver(), { restart: isDirty });
+  const handleStepOut   = () => runAction((s) => s.stepOut(),  { restart: isDirty });
 
   const toggleBreakpoint = (line: number) => {
-    setBreakpoints((current) => {
-      const next = current.includes(line)
-        ? current.filter((value) => value !== line)
-        : [...current, line].sort((left, right) => left - right);
+    setBreakpoints((cur) => {
+      const next = cur.includes(line)
+        ? cur.filter((v) => v !== line)
+        : [...cur, line].sort((a, b) => a - b);
       syncBreakpointState(sessionRef.current, next);
       return next;
     });
   };
 
+  // Sync gutter scroll with editor scroll
   useEffect(() => {
     const editor = editorRef.current;
-    const gutter = gutterRef.current;
-    if (editor === null || gutter === null) {
-      return;
-    }
-
-    const syncScroll = () => {
-      gutter.scrollTop = editor.scrollTop;
-    };
-
-    syncScroll();
-    editor.addEventListener("scroll", syncScroll);
-    return () => editor.removeEventListener("scroll", syncScroll);
+    const gutterInner = gutterInnerRef.current;
+    if (!editor || !gutterInner) return;
+    const sync = () => { gutterInner.scrollTop = editor.scrollTop; };
+    sync();
+    editor.addEventListener("scroll", sync);
+    return () => editor.removeEventListener("scroll", sync);
   }, []);
 
+  const st = execution.status;
+
   return (
-    <main className="ide-shell">
-      <aside className="sidebar left-panel">
-        <section className="tool-panel">
-          <div className="panel-title-row">
-            <div>
-              <p className="panel-kicker">Left Panel</p>
-              <h1>Debugger & Status</h1>
-            </div>
-            <span className={`status-pill status-${execution.status}`}>{execution.status}</span>
-          </div>
-
-          <div className="control-card">
-            <h2 className="section-title">Execution Controls</h2>
-            <div className="toolbar">
-              <button type="button" className="btn-primary" onClick={handleLaunchAndBreak} disabled={isPending}>
-                Launch Debugger
-              </button>
-              <button type="button" className="btn-success" onClick={handleRunToEnd} disabled={isPending}>
-                {execution.status === "paused" ? "Continue To End" : "Run All"}
-              </button>
-              <button type="button" className="btn-danger" onClick={handleRestart} disabled={isPending}>
-                Restart
-              </button>
-            </div>
-
-            <div className="toolbar compact mt-2">
-              <button type="button" onClick={handleStepInto} disabled={!canStep || isPending}>
-                Step Into(↓)
-              </button>
-              <button type="button" onClick={handleStepOver} disabled={!canStep || isPending}>
-                Step Over(→)
-              </button>
-              <button type="button" onClick={handleStepOut} disabled={!canStep || isPending}>
-                Step Out(↑)
-              </button>
-            </div>
-          </div>
-
-          <dl className="summary-grid">
-            <div className="grid-item">
-              <dt>Line</dt>
-              <dd>{execution.currentLine}</dd>
-            </div>
-            <div className="grid-item">
-              <dt>Pause Reason</dt>
-              <dd>{execution.pauseReason ?? "-"}</dd>
-            </div>
-            <div className="grid-item">
-              <dt>Steps Took</dt>
-              <dd>{execution.stepCount}</dd>
-            </div>
-            <div className="grid-item">
-              <dt>BPs</dt>
-              <dd>{breakpoints.length}</dd>
-            </div>
-          </dl>
-
-          {isDirty ? <p className="notice">⚠️ Source code or input has changed. Proceeding will restart the session.</p> : null}
-          {execution.error ? (
-            <pre className="output-panel error-panel p-2 mt-2">{execution.error.message}</pre>
-          ) : null}
-        </section>
-
-        <section className="tool-panel fill-panel state-view-area">
-          <div className="panel-heading">
-            <h2 className="section-title">System State (Scrollable)</h2>
-          </div>
-          <div className="panel-scroll scrollable-container">
-            <div className="debug-group">
-              <h3>Call Stack</h3>
-              <ul className="item-list">
-                {execution.callStack.length === 0 ? (
-                  <li className="muted p-2 rounded bg-panel-soft">No active frames</li>
-                ) : (
-                  execution.callStack
-                    .slice()
-                    .reverse()
-                    .map((frame, index) => (
-                      <li key={`${frame.functionName}-${frame.line}-${index}`} className="stack-item">
-                        <strong>{frame.functionName}()</strong>
-                        <span className="badge">line {frame.line}</span>
-                      </li>
-                    ))
-                )}
-              </ul>
-            </div>
-
-            <div className="debug-group">
-              <h3>Local Variables</h3>
-              {execution.localVars.length === 0 ? (
-                <p className="muted p-2 rounded bg-panel-soft">No local variables</p>
-              ) : (
-                execution.localVars.map((scope, index) => (
-                  <div key={`${scope.name}-${index}`} className="scope-card">
-                    <div className="scope-header">{getScopeTitle(scope, index)}</div>
-                    {scope.vars.length === 0 ? (
-                      <p className="muted">Empty</p>
-                    ) : (
-                      <ul className="item-list">
-                        {scope.vars.map((variable) => (
-                          <li key={`${scope.name}-${variable.name}`} className="var-item">
-                            <span className="var-name">{variable.name}</span>
-                            <span className="var-kind">{variable.kind}</span>
-                            <code className="var-value">{variable.value}</code>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="debug-group">
-              <h3>Global Variables</h3>
-              {execution.globalVars.length === 0 ? (
-                <p className="muted p-2 rounded bg-panel-soft">No globals</p>
-              ) : (
-                <ul className="item-list">
-                  {execution.globalVars.map((variable) => (
-                    <li key={variable.name} className="var-item">
-                      <span className="var-name">{variable.name}</span>
-                      <span className="var-kind">{variable.kind}</span>
-                      <code className="var-value">{variable.value}</code>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="debug-group">
-              <h3>Arrays / Vectors</h3>
-              {execution.arrays.length === 0 ? (
-                <p className="muted p-2 rounded bg-panel-soft">No arrays in memory</p>
-              ) : (
-                execution.arrays.map((array) => (
-                  <div key={array.ref} className="scope-card">
-                    <div className="scope-header">
-                      {getArrayLabel(array)} <span className="badge">{array.elementType}</span>
-                    </div>
-                    <code className="array-view">[{array.values.join(", ")}]</code>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </section>
-
-      </aside>
-
-      <section className="editor-panel right-panel">
-        <div className="editor-topbar">
-          <div>
-            <p className="panel-kicker">Right Panel</p>
-            <h1 className="panel-title">Editor & I/O</h1>
-          </div>
+    <div className="ide">
+      {/* ── LEFT PANEL ── */}
+      <aside className="left">
+        {/* Toolbar */}
+        <div className="toolbar">
+          <button
+            className="tb-btn primary"
+            title="Launch Debugger"
+            onClick={handleLaunch}
+            disabled={isPending}
+          >
+            <I.Launch />
+          </button>
+          <button
+            className="tb-btn run"
+            title={execution.status === "paused" ? "Continue" : "Run to End"}
+            onClick={handleContinue}
+            disabled={isPending}
+          >
+            <I.Continue />
+          </button>
+          <button
+            className="tb-btn danger"
+            title="Restart"
+            onClick={handleRestart}
+            disabled={isPending}
+          >
+            <I.Restart />
+          </button>
+          <div className="sep" />
+          <button
+            className="tb-btn"
+            title="Step Into"
+            onClick={handleStepInto}
+            disabled={!canStep || isPending}
+          >
+            <I.StepInto />
+          </button>
+          <button
+            className="tb-btn"
+            title="Step Over"
+            onClick={handleStepOver}
+            disabled={!canStep || isPending}
+          >
+            <I.StepOver />
+          </button>
+          <button
+            className="tb-btn"
+            title="Step Out"
+            onClick={handleStepOut}
+            disabled={!canStep || isPending}
+          >
+            <I.StepOut />
+          </button>
         </div>
 
-        <div className="editor-container">
-          <div className="editor-meta-bar">
-            <span className="badge">playground.cpp</span>
-            <span className="badge">Current Line: {execution.currentLine}</span>
-            <span className="badge muted">Total {sourceLines.length} lines</span>
+        {/* Status row */}
+        <div className="status-row">
+          <div className={`status-dot ${st}`} />
+          <span className={`status-label ${st}`}>{st}</span>
+          <span className="status-meta">
+            L{execution.currentLine}
+            {" · "}
+            {execution.stepCount}steps
+            {execution.pauseReason ? ` · ${execution.pauseReason}` : ""}
+            {breakpoints.length > 0 ? ` · ${breakpoints.length}bp` : ""}
+          </span>
+        </div>
+
+        {isDirty && (
+          <div className="dirty-notice">
+            ⚠ Source changed — next action will restart
           </div>
-          
-          <div className="editor-shell editable-area">
-            <div ref={gutterRef} className="editor-gutter scrollable-container" aria-hidden="true" title="Click line number to toggle breakpoint">
-              {sourceLines.map((_, index) => {
-                const line = index + 1;
-                const isCurrent = execution.currentLine === line;
-                const hasBreakpoint = breakpoints.includes(line);
+        )}
+
+        {/* Debug sections */}
+        <div className="debug-scroll">
+          {/* Call Stack */}
+          <div className="dbg-section">
+            <div className="dbg-header">
+              Call Stack
+              <span className="count">{execution.callStack.length}</span>
+            </div>
+            {execution.callStack.length === 0 ? (
+              <div className="empty-row">No active frames</div>
+            ) : (
+              <ul className="stack-list">
+                {[...execution.callStack].reverse().map((frame, i) => (
+                  <li
+                    key={`${frame.functionName}-${frame.line}-${i}`}
+                    className={`stack-item${i === 0 ? " top" : ""}`}
+                  >
+                    <span className="stack-fn">{frame.functionName}()</span>
+                    <span className="stack-line">:{frame.line}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Local Variables */}
+          <div className="dbg-section">
+            <div className="dbg-header">
+              Variables
+              <span className="count">
+                {execution.localVars.reduce((n, s) => n + s.vars.length, 0)}
+              </span>
+            </div>
+            {execution.localVars.length === 0 ? (
+              <div className="empty-row">No local variables</div>
+            ) : (
+              execution.localVars.map((scope, idx) => (
+                <div key={`${scope.name}-${idx}`} className="var-scope">
+                  <div className="scope-name">{getScopeTitle(scope, idx)}</div>
+                  {scope.vars.map((v) => (
+                    <div
+                      key={`${scope.name}-${v.name}`}
+                      className="var-row"
+                    >
+                      <span className="var-name">{v.name}</span>
+                      <span className="var-type">{v.kind}</span>
+                      <span
+                        className={`var-val${v.kind === "ARRAY" ? " array-ref" : ""}`}
+                      >
+                        {v.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Global Variables */}
+          {execution.globalVars.length > 0 && (
+            <div className="dbg-section">
+              <div className="dbg-header">
+                Globals
+                <span className="count">{execution.globalVars.length}</span>
+              </div>
+              <div className="var-scope">
+                {execution.globalVars.map((v) => (
+                  <div key={v.name} className="var-row">
+                    <span className="var-name">{v.name}</span>
+                    <span className="var-type">{v.kind}</span>
+                    <span className="var-val">{v.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Arrays / Vectors */}
+          <div className="dbg-section">
+            <div className="dbg-header">
+              Arrays / Vectors
+              <span className="count">{execution.arrays.length}</span>
+            </div>
+            {execution.arrays.length === 0 ? (
+              <div className="empty-row">No arrays in memory</div>
+            ) : (
+              execution.arrays.map((arr) => (
+                <div key={arr.ref} className="array-item">
+                  <div className="array-hdr">
+                    {getArrayLabel(arr)}
+                    <span className="array-type-badge">{arr.elementType}</span>
+                  </div>
+                  <div className="array-vals">[{arr.values.join(", ")}]</div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Error */}
+          {execution.error && (
+            <div className="dbg-section">
+              <div className="dbg-header" style={{ color: "var(--red)" }}>
+                Error
+              </div>
+              <div className="error-msg">{execution.error.message}</div>
+            </div>
+          )}
+        </div>
+      </aside>
+
+      {/* ── RIGHT PANEL ── */}
+      <div className="right">
+        {/* Editor */}
+        <div className="editor-area">
+          <div className="gutter">
+            <div ref={gutterInnerRef} className="gutter-inner">
+              {sourceLines.map((_, i) => {
+                const line = i + 1;
+                const isCur = execution.currentLine === line;
+                const hasBp = breakpoints.includes(line);
                 return (
                   <button
                     key={line}
                     type="button"
-                    className={`gutter-line${isCurrent ? " current" : ""}${hasBreakpoint ? " breakpoint" : ""}`}
+                    className={`gutter-line${isCur ? " cur" : ""}${hasBp ? " bp" : ""}`}
                     onClick={() => toggleBreakpoint(line)}
-                    title={`Toggle Breakpoint on line ${line}`}
+                    title={`Toggle breakpoint on line ${line}`}
                   >
-                    <span className="breakpoint-dot" />
-                    <span>{lineNumberLabel(line)}</span>
+                    <span className="bp-dot" />
+                    <span>{line}</span>
                   </button>
                 );
               })}
             </div>
-
+          </div>
+          <div className="source-wrap">
             <textarea
               ref={editorRef}
-              className="source-editor scrollable-container"
+              className="source-editor"
               spellCheck={false}
               value={source}
-              onChange={(event) => {
-                setSource(event.target.value);
+              onChange={(e) => {
+                setSource(e.target.value);
                 setIsDirty(true);
                 resetExecution();
               }}
@@ -389,43 +424,53 @@ export function Playground() {
           </div>
         </div>
 
-        <div className="io-panel">
-          <div className="io-section inable">
-            <div className="panel-heading">
-              <h2 className="section-title">Standard Input (Editable)</h2>
+        {/* I/O */}
+        <div className="io-area">
+          <div className="io-pane">
+            <div className="io-header">
+              <span className="io-icon">→</span>stdin
             </div>
-            <textarea
-              className="input-editor editable-area scrollable-container"
-              spellCheck={false}
-              value={input}
-              onChange={(event) => {
-                setInput(event.target.value);
-                setIsDirty(true);
-                resetExecution();
-              }}
-              placeholder="Enter standard input here..."
-            />
+            <div className="io-body">
+              <textarea
+                spellCheck={false}
+                value={input}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  setIsDirty(true);
+                  resetExecution();
+                }}
+                placeholder="stdin..."
+              />
+            </div>
           </div>
 
-          <div className="io-section">
-            <div className="panel-heading">
-              <h2 className="section-title">Standard Output (Read-only scrollable)</h2>
+          <div className="io-pane">
+            <div className="io-header">
+              <span className="io-icon">←</span>stdout
             </div>
-            <pre className="output-panel scrollable-container stdout-panel">
-              {execution.output.stdout || "(empty)"}
-            </pre>
+            <div className="io-body">
+              {execution.output.stdout ? (
+                <pre>{execution.output.stdout}</pre>
+              ) : (
+                <span className="empty">empty</span>
+              )}
+            </div>
           </div>
-          
-          <div className="io-section">
-            <div className="panel-heading">
-              <h2 className="section-title">Standard Error (Read-only scrollable)</h2>
+
+          <div className="io-pane">
+            <div className="io-header">
+              <span className="io-icon" style={{ color: "var(--red)" }}>!</span>stderr
             </div>
-            <pre className="output-panel scrollable-container stderr-panel">
-              {execution.output.stderr || "(empty)"}
-            </pre>
+            <div className="io-body">
+              {execution.output.stderr ? (
+                <pre className="err">{execution.output.stderr}</pre>
+              ) : (
+                <span className="empty">empty</span>
+              )}
+            </div>
           </div>
         </div>
-      </section>
-    </main>
+      </div>
+    </div>
   );
 }
