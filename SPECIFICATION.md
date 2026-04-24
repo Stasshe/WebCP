@@ -23,7 +23,7 @@
 | テンプレート（`template<>`） | |
 | 関数ポインタ | |
 | 名前空間（`namespace`） | `using namespace std;` のみ特別扱いで許可 |
-| プリプロセッサ（`#include`, `#define` 等） | 将来対応予定 |
+| プリプロセッサ | `#include <bits/stdc++.h>` と `#define` のみ対応 |
 | キャスト構文（`(int)x`, `static_cast<>` 等） | |
 | 三項演算子（`? :`） | 将来対応候補 |
 | 多重戻り値・タプル | |
@@ -677,7 +677,8 @@ type NodeBase = { line: number; col: number }
 - 2次元配列（`int dp[1001][1001]`、`vector<vector<int>>`）
 - ビット演算子（`&`, `|`, `^`, `~`, `<<`, `>>`）
 - 三項演算子（`? :`）
-- `#define`（マクロ定義）
+- 条件付きコンパイル（`#if`, `#ifdef`, `#ifndef`, `#else`, `#endif`）
+- その他のプリプロセッサディレクティブ
 - 条件付きブレークポイント
 - 実行の巻き戻し（リバースデバッグ）
 - 固定長配列への `sort(a, a + n)`

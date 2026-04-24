@@ -156,4 +156,17 @@ int main() {
     expect(result.status).toBe("error");
     expect(result.error?.message).toMatch(/type mismatch: expected int/);
   });
+
+  it("rejects unsupported preprocessor directives", () => {
+    const source = `
+#ifdef LOCAL
+int main() {
+  return 0;
+}
+#endif
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("error");
+    expect(result.error?.message).toMatch(/unsupported preprocessor directive/);
+  });
 });

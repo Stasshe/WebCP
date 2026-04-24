@@ -1,11 +1,17 @@
 import { runProgram } from "./interpreter/interpreter";
 import { lex } from "./parser/lexer";
 import { parse } from "./parser/parser";
+import { preprocess } from "./preprocessor";
 import { validateProgram } from "./semantic/validator";
 import type { CompileError, CompileResult, ProgramNode, RunResult } from "./types";
 
 export function compile(source: string): CompileResult {
-  const lexed = lex(source);
+  const preprocessed = preprocess(source);
+  if (!preprocessed.ok) {
+    return { ok: false, errors: preprocessed.errors };
+  }
+
+  const lexed = lex(preprocessed.source);
   if (!lexed.ok) {
     return { ok: false, errors: lexed.errors };
   }

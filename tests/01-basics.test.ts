@@ -119,4 +119,51 @@ int main() {
     expect(result.status).toBe("done");
     expect(result.output.stdout).toBe("ok\n");
   });
+
+  it("accepts include bits stdc++ header", () => {
+    const source = `
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+  cout << "ok\\n";
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("ok\n");
+  });
+
+  it("expands object-like defines", () => {
+    const source = `
+#define N 5
+
+int main() {
+  int sum = 0;
+  for (int i = 0; i < N; i++) {
+    sum += i;
+  }
+  cout << sum << "\\n";
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("10\n");
+  });
+
+  it("expands function-like defines", () => {
+    const source = `
+#define SQR(x) ((x) * (x))
+
+int main() {
+  cout << SQR(1 + 2) << "\\n";
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("9\n");
+  });
 });
