@@ -1,5 +1,5 @@
-import typescript from 'rollup-plugin-typescript2';
-import tslib from 'typescript';
+import { nodeResolve } from '@rollup/plugin-node-resolve';
+import typescript from '@rollup/plugin-typescript';
 
 const config = {
   input: 'src/index.ts',
@@ -16,8 +16,10 @@ const config = {
     },
   ],
   plugins: [
+    nodeResolve({
+      extensions: ['.ts', '.js'],
+    }),
     typescript({
-      typescript: tslib,
       tsconfig: 'tsconfig.json',
     }),
   ],
