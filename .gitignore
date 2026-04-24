@@ -1,5 +1,6 @@
 # Dependencies
 /node_modules
+/apps/web/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -13,6 +14,8 @@ tests/output/*
 
 # Build output
 /dist
+/apps/web/.next
+/apps/web/out
 
 # Logs
 npm-debug.log*

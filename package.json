@@ -1,8 +1,9 @@
 {
-  "name": "clientside-cpp",
+  "name": "web-cp-cpp",
   "version": "0.0.0",
   "type": "module",
   "description": "",
+  "packageManager": "pnpm@10.33.0",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
   "types": "dist/index.d.ts",
@@ -17,7 +18,10 @@
     "lint": "biome lint src/**/*.ts tests/*.ts",
     "lint:fix": "biome check --write src/**/*.ts tests/*.ts",
     "format": "biome format src/**/*.ts tests/*.ts",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "web:dev": "pnpm --dir apps/web dev",
+    "web:build": "pnpm --dir apps/web build",
+    "web:start": "pnpm --dir apps/web start"
   },
   "keywords": [],
   "author": "Stasshe",
