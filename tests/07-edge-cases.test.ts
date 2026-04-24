@@ -148,7 +148,7 @@ int main() {
     const source = `
 int main() {
   int x = 0;
-  if (x == 0 && 1 / x == 1) {
+  if (x != 0 && 1 / x == 1) {
     cout << "never\\n";
   } else {
     cout << "ok\\n";
@@ -165,10 +165,10 @@ int main() {
     const source = `
 int main() {
   int x = 0;
-  if (x != 0 || 1 / x == 1) {
-    cout << "never\\n";
-  } else {
+  if (x == 0 || 1 / x == 1) {
     cout << "ok\\n";
+  } else {
+    cout << "never\\n";
   }
   return 0;
 }

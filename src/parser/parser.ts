@@ -142,7 +142,7 @@ class Parser {
     }
 
     while (true) {
-      const typeName = this.parseTypeName();
+      const typeName = this.parseParamTypeName();
       if (typeName === null) {
         break;
       }
@@ -150,9 +150,18 @@ class Parser {
       if (nameToken === null) {
         break;
       }
+      let paramType = typeName;
+      if (
+        typeof typeName === "string" &&
+        typeName !== "void" &&
+        this.matchSymbol("[")
+      ) {
+        this.consumeSymbol("]", "expected ']' after array parameter");
+        paramType = { kind: "array", elementType: typeName };
+      }
       params.push({
         kind: "Param",
-        typeName,
+        typeName: paramType,
         name: nameToken.text,
         line: nameToken.line,
         col: nameToken.col,
@@ -168,6 +177,40 @@ class Parser {
 
     this.consumeSymbol(")", "expected ')' after parameter list");
     return params;
+  }
+
+  private parseParamTypeName(): FunctionDeclNode["params"][number]["typeName"] | null {
+    if (this.checkKeyword("vector")) {
+      return this.parseVectorParamTypeName();
+    }
+    return this.parseTypeName();
+  }
+
+  private parseVectorParamTypeName(): Extract<
+    FunctionDeclNode["params"][number]["typeName"],
+    { kind: "vector" }
+  > | null {
+    if (!this.consumeKeyword("vector", "expected 'vector'")) {
+      return null;
+    }
+    if (!this.consumeSymbol("<", "expected '<' after vector")) {
+      return null;
+    }
+
+    const elementType = this.parseTypeName();
+    if (elementType === null) {
+      return null;
+    }
+    if (elementType === "void") {
+      this.errorAtCurrent("vector element type cannot be void");
+      return null;
+    }
+
+    if (!this.consumeSymbol(">", "expected '>' after vector element type")) {
+      return null;
+    }
+
+    return { kind: "vector", elementType };
   }
 
   private parseRequiredBlock(errorMessage: string): BlockStmtNode | null {

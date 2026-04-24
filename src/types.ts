@@ -1,5 +1,10 @@
 export type PrimitiveTypeName = "int" | "long long" | "bool" | "string" | "void";
 
+export type ParamTypeName =
+  | PrimitiveTypeName
+  | { kind: "array"; elementType: Exclude<PrimitiveTypeName, "void"> }
+  | { kind: "vector"; elementType: Exclude<PrimitiveTypeName, "void"> };
+
 export type SourceLocation = {
   line: number;
   col: number;
@@ -25,7 +30,7 @@ export type FunctionDeclNode = NodeBase & {
 
 export type ParamNode = NodeBase & {
   kind: "Param";
-  typeName: PrimitiveTypeName;
+  typeName: ParamTypeName;
   name: string;
 };
 

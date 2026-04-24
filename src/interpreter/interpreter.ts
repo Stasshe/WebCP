@@ -13,6 +13,7 @@ import type {
   ExprNode,
   FrameView,
   FunctionDeclNode,
+  ParamTypeName,
   PrimitiveTypeName,
   ProgramNode,
   RunResult,
@@ -195,7 +196,7 @@ class Interpreter {
       if (param === undefined || arg === undefined) {
         this.fail(`too few arguments to function '${fn.name}'`, fn.line);
       }
-      this.define(param.name, this.assertPrimitiveType(param.typeName, arg, param.line));
+      this.define(param.name, this.assertParamType(param.typeName, arg, param.line));
     }
 
     try {
@@ -385,7 +386,9 @@ class Interpreter {
     const sizeAsNumber = Number(decl.size);
     const elementType = this.toElementType(decl.elementType, decl.line);
     const values = Array.from({ length: sizeAsNumber }, () =>
-      this.defaultPrimitiveValue(elementType),
+      decl.initializers.length > 0
+        ? this.defaultPrimitiveValue(elementType)
+        : uninitializedForType(elementType),
     );
 
     for (let i = 0; i < decl.initializers.length; i += 1) {
@@ -468,13 +471,25 @@ class Interpreter {
           return { kind: "int", value: -value.value };
         }
 
-        if (expr.operand.kind !== "Identifier") {
+        if (expr.operand.kind !== "Identifier" && expr.operand.kind !== "IndexExpr") {
           this.fail("increment/decrement target must be a variable", expr.line);
         }
-        const current = this.expectInt(this.resolve(expr.operand.name, expr.line), expr.line);
+
+        const current =
+          expr.operand.kind === "Identifier"
+            ? this.expectInt(this.resolve(expr.operand.name, expr.line), expr.line)
+            : this.expectInt(
+                this.getIndexedValue(expr.operand.target, expr.operand.index, expr.line),
+                expr.line,
+              );
         const delta = expr.operator === "++" ? 1n : -1n;
         const updated: RuntimeValue = { kind: "int", value: current.value + delta };
-        this.assign(expr.operand.name, updated, expr.line);
+
+        if (expr.operand.kind === "Identifier") {
+          this.assign(expr.operand.name, updated, expr.line);
+        } else {
+          this.setIndexedValue(expr.operand.target, expr.operand.index, updated, expr.line);
+        }
         return expr.isPostfix ? current : updated;
       }
       case "BinaryExpr":
@@ -488,17 +503,20 @@ class Interpreter {
           return assigned;
         }
 
-        const currentIndexValue = this.getIndexedValue(
-          expr.target.target,
-          expr.target.index,
-          expr.line,
-        );
-        const assigned = this.resolveAssignedValue(
-          expr.operator,
-          currentIndexValue,
-          rightValue,
-          expr.line,
-        );
+        let assigned: RuntimeValue = rightValue;
+        if (expr.operator !== "=") {
+          const currentIndexValue = this.getIndexedValue(
+            expr.target.target,
+            expr.target.index,
+            expr.line,
+          );
+          assigned = this.resolveAssignedValue(
+            expr.operator,
+            currentIndexValue,
+            rightValue,
+            expr.line,
+          );
+        }
         this.setIndexedValue(expr.target.target, expr.target.index, assigned, expr.line);
         return assigned;
       }
@@ -631,7 +649,7 @@ class Interpreter {
     if (value === undefined) {
       this.fail("invalid index access", line);
     }
-    return value;
+    return this.ensureInitialized(value, line, "array element");
   }
 
   private setIndexedValue(
@@ -976,6 +994,30 @@ class Interpreter {
 
     if (value.kind !== normalizedType) {
       this.fail(`cannot convert '${value.kind}' to '${normalizedType}'`, line);
+    }
+
+    return value;
+  }
+
+  private assertParamType(typeName: ParamTypeName, value: RuntimeValue, line: number): RuntimeValue {
+    if (typeof typeName === "string") {
+      return this.assertPrimitiveType(typeName, value, line);
+    }
+
+    if (value.kind !== "array") {
+      this.fail(`cannot convert '${value.kind}' to '${typeName.kind}'`, line);
+    }
+
+    if (value.elementType !== this.toElementType(typeName.elementType, line)) {
+      this.fail(`cannot convert '${value.elementType}' to '${typeName.elementType}'`, line);
+    }
+
+    if (typeName.kind === "vector" && !value.dynamic) {
+      this.fail("cannot convert 'array' to 'vector'", line);
+    }
+
+    if (typeName.kind === "array" && value.dynamic) {
+      this.fail("cannot convert 'vector' to 'array'", line);
     }
 
     return value;
