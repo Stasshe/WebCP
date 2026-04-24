@@ -474,10 +474,7 @@ class Parser {
     };
   }
 
-  private finishArrayDecl(
-    elementType: PrimitiveTypeName,
-    nameToken: Token,
-  ): ArrayDeclNode | null {
+  private finishArrayDecl(elementType: PrimitiveTypeName, nameToken: Token): ArrayDeclNode | null {
     if (elementType === "void") {
       this.errorAt(nameToken, "array element type cannot be void");
       return null;

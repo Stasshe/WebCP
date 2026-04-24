@@ -60,9 +60,7 @@ const ONE_CHAR_SYMBOLS = new Set<string>([
   "!",
 ]);
 
-export type LexResult =
-  | { ok: true; tokens: Token[] }
-  | { ok: false; errors: CompileError[] };
+export type LexResult = { ok: true; tokens: Token[] } | { ok: false; errors: CompileError[] };
 
 export function lex(source: string): LexResult {
   const tokens: Token[] = [];
@@ -86,7 +84,12 @@ export function lex(source: string): LexResult {
     return ch;
   };
 
-  const addToken = (kind: Token["kind"], text: string, tokenLine: number, tokenCol: number): void => {
+  const addToken = (
+    kind: Token["kind"],
+    text: string,
+    tokenLine: number,
+    tokenCol: number,
+  ): void => {
     tokens.push({ kind, text, line: tokenLine, col: tokenCol });
   };
 
