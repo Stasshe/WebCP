@@ -1,5 +1,16 @@
 "use client";
 
+import { cpp } from "@codemirror/lang-cpp";
+import { Compartment, EditorState, RangeSetBuilder } from "@codemirror/state";
+import { defaultHighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import {
+  Decoration,
+  EditorView,
+  GutterMarker,
+  gutter,
+  highlightActiveLineGutter,
+  lineNumbers,
+} from "@codemirror/view";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { DebugSession } from "@clientsidecpp/index";
 import type { DebugState, ScopeView } from "@clientsidecpp/types";
@@ -74,38 +85,203 @@ function getArrayRef(value: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+class BreakpointMarker extends GutterMarker {
+  toDOM() {
+    const dot = document.createElement("span");
+    dot.className = "cm-breakpoint-marker";
+    return dot;
+  }
+}
+
+class ExecutionMarker extends GutterMarker {
+  toDOM() {
+    const marker = document.createElement("span");
+    marker.className = "cm-execution-marker";
+    marker.textContent = "▶";
+    return marker;
+  }
+}
+
+const breakpointMarker = new BreakpointMarker();
+const executionMarker = new ExecutionMarker();
+
+const breakpointCompartment = new Compartment();
+const executionCompartment = new Compartment();
+
+function createBreakpointGutter(
+  breakpoints: number[],
+  onToggle: (line: number) => void
+) {
+  const lines = new Set(breakpoints);
+  return gutter({
+    class: "cm-breakpoint-gutter",
+    markers(view) {
+      const builder = new RangeSetBuilder<GutterMarker>();
+      for (let index = 1; index <= view.state.doc.lines; index += 1) {
+        if (!lines.has(index)) continue;
+        const line = view.state.doc.line(index);
+        builder.add(line.from, line.from, breakpointMarker);
+      }
+      return builder.finish();
+    },
+    initialSpacer() {
+      return breakpointMarker;
+    },
+    domEventHandlers: {
+      mousedown: (view, line) => {
+        onToggle(view.state.doc.lineAt(line.from).number);
+        return true;
+      },
+    },
+  });
+}
+
+function createExecutionDecorations(lineFrom: number | null) {
+  if (lineFrom === null) {
+    return EditorView.decorations.of(Decoration.none);
+  }
+
+  return EditorView.decorations.of(
+    Decoration.set([
+      Decoration.line({ attributes: { class: "cm-execution-line" } }).range(lineFrom),
+    ], true)
+  );
+}
+
+function createExecutionGutter(lineNumber: number | null) {
+  return gutter({
+    class: "cm-execution-gutter",
+    markers(view) {
+      if (lineNumber === null || lineNumber < 1 || lineNumber > view.state.doc.lines) {
+        return new RangeSetBuilder<GutterMarker>().finish();
+      }
+      const line = view.state.doc.line(lineNumber);
+      const builder = new RangeSetBuilder<GutterMarker>();
+      builder.add(line.from, line.from, executionMarker);
+      return builder.finish();
+    },
+    initialSpacer() {
+      return executionMarker;
+    },
+  });
+}
+
+function scrollLineIntoView(view: EditorView, lineNumber: number) {
+  if (lineNumber < 1 || lineNumber > view.state.doc.lines) return;
+  const line = view.state.doc.line(lineNumber);
+  view.dispatch({
+    effects: EditorView.scrollIntoView(line.from, { y: "center" }),
+  });
+}
+
+const editorTheme = EditorView.theme({
+  "&": {
+    height: "100%",
+    backgroundColor: "var(--bg)",
+    color: "var(--text)",
+    fontFamily: "var(--font-mono)",
+    fontSize: "13px",
+  },
+  ".cm-scroller": {
+    fontFamily: "var(--font-mono)",
+    lineHeight: "1.4",
+    overflow: "auto",
+  },
+  ".cm-content": {
+    padding: "0 0 24px",
+    caretColor: "var(--text-bright)",
+  },
+  ".cm-line": {
+    padding: "0 12px",
+  },
+  ".cm-cursor": {
+    borderLeftColor: "var(--text-bright)",
+  },
+  ".cm-selectionBackground, ::selection": {
+    backgroundColor: "rgba(79, 193, 255, 0.22)",
+  },
+  ".cm-activeLine": {
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
+  },
+  ".cm-activeLineGutter": {
+    backgroundColor: "transparent",
+  },
+  ".cm-gutters": {
+    backgroundColor: "var(--bg2)",
+    color: "var(--text-dim)",
+    borderRight: "1px solid var(--border)",
+  },
+  ".cm-lineNumbers .cm-gutterElement": {
+    padding: "0 8px 0 0",
+    minWidth: "28px",
+  },
+  ".cm-breakpoint-gutter": {
+    width: "20px",
+  },
+  ".cm-execution-gutter": {
+    width: "14px",
+  },
+  ".cm-breakpoint-gutter .cm-gutterElement, .cm-execution-gutter .cm-gutterElement": {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+  },
+  ".cm-breakpoint-marker": {
+    width: "8px",
+    height: "8px",
+    borderRadius: "50%",
+    backgroundColor: "var(--bp)",
+    boxShadow: "0 0 0 1px rgba(0, 0, 0, 0.35)",
+  },
+  ".cm-execution-marker": {
+    color: "var(--accent)",
+    fontSize: "10px",
+    lineHeight: "1",
+  },
+  ".cm-execution-line": {
+    backgroundColor: "rgba(79, 193, 255, 0.1)",
+  },
+  ".cm-focused": {
+    outline: "none",
+  },
+  ".cm-tooltip": {
+    border: "1px solid var(--border)",
+    backgroundColor: "var(--bg3)",
+  },
+});
+
 // ── Icon primitives ──────────────────────────────────────────────────────────
 const I = {
-  // codicon-style SVG paths (16×16 viewBox)
   Launch: () => (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-      <path d="M5 3.5l7 4.5-7 4.5V3.5z"/>
+      <path d="M5 3.5l7 4.5-7 4.5V3.5z" />
     </svg>
   ),
   Continue: () => (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-      <path d="M4 3.5l5 4.5-5 4.5V3.5zm6 0h1.5v9H10V3.5z"/>
+      <path d="M4 3.5l5 4.5-5 4.5V3.5zm6 0h1.5v9H10V3.5z" />
     </svg>
   ),
   Restart: () => (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-      <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 1 1 .908-.416A6 6 0 1 1 8 2v1z"/>
-      <path d="M8 2l2 2-2 2V2z"/>
+      <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 1 1 .908-.416A6 6 0 1 1 8 2v1z" />
+      <path d="M8 2l2 2-2 2V2z" />
     </svg>
   ),
   StepInto: () => (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-      <path d="M8 1v8M5 6l3 3 3-3M3 13h10" stroke="currentColor" strokeWidth="1.4" fill="none"/>
+      <path d="M8 1v8M5 6l3 3 3-3M3 13h10" stroke="currentColor" strokeWidth="1.4" fill="none" />
     </svg>
   ),
   StepOver: () => (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-      <path d="M4 4a4 4 0 0 1 8 0v5M9 6l3 3-3 3" stroke="currentColor" strokeWidth="1.4" fill="none"/>
+      <path d="M4 4a4 4 0 0 1 8 0v5M9 6l3 3-3 3" stroke="currentColor" strokeWidth="1.4" fill="none" />
     </svg>
   ),
   StepOut: () => (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-      <path d="M8 15V7M5 10l3-3 3 3M3 3h10" stroke="currentColor" strokeWidth="1.4" fill="none"/>
+      <path d="M8 15V7M5 10l3-3 3 3M3 3h10" stroke="currentColor" strokeWidth="1.4" fill="none" />
     </svg>
   ),
 };
@@ -120,10 +296,9 @@ export function Playground() {
   const [isPending, startTransition] = useTransition();
 
   const sessionRef = useRef<DebugSession | null>(null);
-  const editorRef = useRef<HTMLTextAreaElement | null>(null);
-  const gutterInnerRef = useRef<HTMLDivElement | null>(null);
+  const editorHostRef = useRef<HTMLDivElement | null>(null);
+  const editorViewRef = useRef<EditorView | null>(null);
 
-  const sourceLines = useMemo(() => source.split("\n"), [source]);
   const arraysByRef = useMemo(
     () => new Map(execution.arrays.map((arr) => [arr.ref, arr])),
     [execution.arrays]
@@ -173,12 +348,12 @@ export function Playground() {
     });
   };
 
-  const handleLaunch    = () => runAction((s) => s.stepInto(), { restart: true });
-  const handleRestart   = () => runAction((s) => s.stepInto(), { restart: true });
-  const handleContinue  = () => runAction((s) => s.run(),      { restart: isDirty });
-  const handleStepInto  = () => runAction((s) => s.stepInto(), { restart: isDirty });
-  const handleStepOver  = () => runAction((s) => s.stepOver(), { restart: isDirty });
-  const handleStepOut   = () => runAction((s) => s.stepOut(),  { restart: isDirty });
+  const handleLaunch = () => runAction((s) => s.stepInto(), { restart: true });
+  const handleRestart = () => runAction((s) => s.stepInto(), { restart: true });
+  const handleContinue = () => runAction((s) => s.run(), { restart: isDirty });
+  const handleStepInto = () => runAction((s) => s.stepInto(), { restart: isDirty });
+  const handleStepOver = () => runAction((s) => s.stepOver(), { restart: isDirty });
+  const handleStepOut = () => runAction((s) => s.stepOut(), { restart: isDirty });
 
   const toggleBreakpoint = (line: number) => {
     setBreakpoints((cur) => {
@@ -190,16 +365,98 @@ export function Playground() {
     });
   };
 
-  // Sync gutter scroll with editor scroll
   useEffect(() => {
-    const editor = editorRef.current;
-    const gutterInner = gutterInnerRef.current;
-    if (!editor || !gutterInner) return;
-    const sync = () => { gutterInner.scrollTop = editor.scrollTop; };
-    sync();
-    editor.addEventListener("scroll", sync);
-    return () => editor.removeEventListener("scroll", sync);
+    if (!editorHostRef.current) return;
+
+    const onToggleBreakpoint = (line: number) => {
+      toggleBreakpoint(line);
+    };
+
+    const state = EditorState.create({
+      doc: source,
+      extensions: [
+        lineNumbers(),
+        highlightActiveLineGutter(),
+        EditorView.lineWrapping,
+        cpp(),
+        syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+        editorTheme,
+        breakpointCompartment.of(createBreakpointGutter(breakpoints, onToggleBreakpoint)),
+        executionCompartment.of([
+          createExecutionGutter(null),
+          createExecutionDecorations(null),
+        ]),
+        EditorView.updateListener.of((update) => {
+          if (!update.docChanged) return;
+          const nextSource = update.state.doc.toString();
+          setSource(nextSource);
+          setIsDirty(true);
+          resetExecution();
+        }),
+      ],
+    });
+
+    const view = new EditorView({
+      state,
+      parent: editorHostRef.current,
+    });
+
+    editorViewRef.current = view;
+    return () => {
+      editorViewRef.current = null;
+      view.destroy();
+    };
   }, []);
+
+  useEffect(() => {
+    const view = editorViewRef.current;
+    if (!view) return;
+
+    view.dispatch({
+      effects: breakpointCompartment.reconfigure(
+        createBreakpointGutter(breakpoints, toggleBreakpoint)
+      ),
+    });
+  }, [breakpoints]);
+
+  useEffect(() => {
+    const view = editorViewRef.current;
+    if (!view) return;
+
+    const activeLine =
+      execution.status === "paused" ||
+      execution.status === "done" ||
+      execution.status === "error"
+        ? execution.currentLine
+        : null;
+    const activeLineFrom =
+      activeLine !== null &&
+      activeLine >= 1 &&
+      activeLine <= view.state.doc.lines
+        ? view.state.doc.line(activeLine).from
+        : null;
+
+    view.dispatch({
+      effects: executionCompartment.reconfigure([
+        createExecutionGutter(activeLine),
+        createExecutionDecorations(activeLineFrom),
+      ]),
+    });
+
+    if (activeLine !== null) {
+      scrollLineIntoView(view, activeLine);
+    }
+  }, [execution.currentLine, execution.status]);
+
+  useEffect(() => {
+    const view = editorViewRef.current;
+    if (!view) return;
+    const currentDoc = view.state.doc.toString();
+    if (currentDoc === source) return;
+    view.dispatch({
+      changes: { from: 0, to: currentDoc.length, insert: source },
+    });
+  }, [source]);
 
   const st = execution.status;
   const renderVarRow = (v: { name: string; kind: string; value: string }, scopeKey: string) => {
@@ -223,9 +480,7 @@ export function Playground() {
 
   return (
     <div className="ide">
-      {/* ── LEFT PANEL ── */}
       <aside className="left">
-        {/* Toolbar */}
         <div className="toolbar">
           <button
             className="tb-btn primary"
@@ -278,7 +533,6 @@ export function Playground() {
           </button>
         </div>
 
-        {/* Status row */}
         <div className="status-row">
           <div className={`status-dot ${st}`} />
           <span className={`status-label ${st}`}>{st}</span>
@@ -293,13 +547,11 @@ export function Playground() {
 
         {isDirty && (
           <div className="dirty-notice">
-            ⚠ Source changed — next action will restart
+            ⚠ Source changed - next action will restart
           </div>
         )}
 
-        {/* Debug sections */}
         <div className="debug-scroll">
-          {/* Call Stack */}
           <div className="dbg-section">
             <div className="dbg-header">
               Call Stack
@@ -322,7 +574,6 @@ export function Playground() {
             )}
           </div>
 
-          {/* Local Variables */}
           <div className="dbg-section">
             <div className="dbg-header">
               Variables
@@ -334,7 +585,7 @@ export function Playground() {
               <div className="empty-row">No local variables</div>
             ) : (
               execution.localVars.map((scope, idx) => (
-                  <div key={`${scope.name}-${idx}`} className="var-scope">
+                <div key={`${scope.name}-${idx}`} className="var-scope">
                   <div className="scope-name">{getScopeTitle(scope, idx)}</div>
                   {scope.vars.map((v) => renderVarRow(v, scope.name))}
                 </div>
@@ -342,7 +593,6 @@ export function Playground() {
             )}
           </div>
 
-          {/* Global Variables */}
           {execution.globalVars.length > 0 && (
             <div className="dbg-section">
               <div className="dbg-header">
@@ -355,7 +605,6 @@ export function Playground() {
             </div>
           )}
 
-          {/* Error */}
           {execution.error && (
             <div className="dbg-section">
               <div className="dbg-header" style={{ color: "var(--red)" }}>
@@ -367,48 +616,11 @@ export function Playground() {
         </div>
       </aside>
 
-      {/* ── RIGHT PANEL ── */}
       <div className="right">
-        {/* Editor */}
         <div className="editor-area">
-          <div className="gutter">
-            <div ref={gutterInnerRef} className="gutter-inner">
-              {sourceLines.map((_, i) => {
-                const line = i + 1;
-                const isCur = execution.currentLine === line;
-                const hasBp = breakpoints.includes(line);
-                return (
-                  <button
-                    key={line}
-                    type="button"
-                    className={`gutter-line${isCur ? " cur" : ""}${hasBp ? " bp" : ""}`}
-                    onClick={() => toggleBreakpoint(line)}
-                    title={`Toggle breakpoint on line ${line}`}
-                  >
-                    <span className="bp-dot" />
-                    <span>{line}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div className="source-wrap">
-            <textarea
-              ref={editorRef}
-              className="source-editor"
-              spellCheck={false}
-              value={source}
-              onChange={(e) => {
-                setSource(e.target.value);
-                setIsDirty(true);
-                resetExecution();
-              }}
-              placeholder="Write your C++ code here..."
-            />
-          </div>
+          <div ref={editorHostRef} className="code-editor" />
         </div>
 
-        {/* I/O */}
         <div className="io-area">
           <div className="io-pane">
             <div className="io-header">
@@ -454,12 +666,10 @@ export function Playground() {
                 ) : (
                   <span className="empty">empty</span>
                 )
+              ) : execution.output.stderr ? (
+                <pre className="err">{execution.output.stderr}</pre>
               ) : (
-                execution.output.stderr ? (
-                  <pre className="err">{execution.output.stderr}</pre>
-                ) : (
-                  <span className="empty">empty</span>
-                )
+                <span className="empty">empty</span>
               )}
             </div>
           </div>
