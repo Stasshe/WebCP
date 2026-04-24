@@ -388,7 +388,7 @@ class Interpreter {
     const values = Array.from({ length: sizeAsNumber }, () =>
       decl.initializers.length > 0
         ? this.defaultPrimitiveValue(elementType)
-        : uninitializedForType(elementType),
+        : this.uninitializedPrimitiveValue(elementType),
     );
 
     for (let i = 0; i < decl.initializers.length; i += 1) {
@@ -915,6 +915,10 @@ class Interpreter {
       return { kind: "bool", value: false };
     }
     return { kind: "string", value: "" };
+  }
+
+  private uninitializedPrimitiveValue(typeName: PrimitiveElementType): RuntimeValue {
+    return { kind: "uninitialized", expected: typeName };
   }
 
   private defineInScope(scope: Scope, name: string, value: RuntimeValue, line: number): void {
