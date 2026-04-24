@@ -187,6 +187,11 @@ export abstract class ExpressionParser extends BaseParser {
   }
 
   private parsePrimary(): ExprNode | null {
+    const greaterComparator = this.parseGreaterComparator();
+    if (greaterComparator !== null) {
+      return greaterComparator;
+    }
+
     if (this.match("number")) {
       const t = this.previous();
       return {
@@ -237,6 +242,45 @@ export abstract class ExpressionParser extends BaseParser {
     }
 
     return null;
+  }
+
+  private parseGreaterComparator(): ExprNode | null {
+    const token = this.peek();
+    const next = this.tokens[this.index + 1];
+    if (
+      token?.kind !== "identifier" ||
+      token.text !== "greater" ||
+      next?.kind !== "symbol" ||
+      next.text !== "<"
+    ) {
+      return null;
+    }
+
+    this.advance();
+    if (!this.consumeSymbol("<", "expected '<' after greater")) {
+      return null;
+    }
+    const type = this.parsePrimitiveType();
+    if (type === null) {
+      return null;
+    }
+    if (!this.consumeSymbol(">", "expected '>' after comparator type")) {
+      return null;
+    }
+    if (!this.consumeSymbol("(", "expected '(' after comparator type")) {
+      return null;
+    }
+    if (!this.consumeSymbol(")", "expected ')' after comparator")) {
+      return null;
+    }
+
+    return {
+      kind: "CallExpr",
+      callee: "greater",
+      args: [],
+      line: token.line,
+      col: token.col,
+    };
   }
 
   private parseLeftAssociative(parseOperand: () => ExprNode, operators: string[]): ExprNode {

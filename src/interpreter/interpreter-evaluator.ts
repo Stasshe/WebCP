@@ -22,11 +22,15 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
         return this.resolve(expr.name, expr.line);
       case "CallExpr": {
         const fn = this.functions.get(expr.callee);
-        if (fn === undefined) {
-          this.fail(`'${expr.callee}' was not declared in this scope`, expr.line);
+        if (fn !== undefined) {
+          const argValues = expr.args.map((arg) => this.evaluateExpr(arg));
+          return this.invokeFunction(fn, argValues);
         }
-        const argValues = expr.args.map((arg) => this.evaluateExpr(arg));
-        return this.invokeFunction(fn, argValues);
+        const builtinResult = this.tryEvaluateBuiltinCall(expr.callee, expr.args, expr.line);
+        if (builtinResult !== null) {
+          return builtinResult;
+        }
+        this.fail(`'${expr.callee}' was not declared in this scope`, expr.line);
       }
       case "MethodCallExpr":
         return this.evaluateMethodCall(expr.receiver, expr.method, expr.args, expr.line);
@@ -95,6 +99,63 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
   }
 
   protected abstract invokeFunction(fn: FunctionDeclNode, args: RuntimeValue[]): RuntimeValue;
+
+  private tryEvaluateBuiltinCall(callee: string, args: ExprNode[], line: number): RuntimeValue | null {
+    if (callee === "abs") {
+      if (args.length !== 1) {
+        this.fail("abs requires exactly 1 argument", line);
+      }
+      const value = this.expectInt(this.evaluateExpr(args[0] as ExprNode), line).value;
+      return { kind: "int", value: value < 0n ? -value : value };
+    }
+
+    if (callee === "max" || callee === "min") {
+      if (args.length !== 2) {
+        this.fail(`${callee} requires exactly 2 arguments`, line);
+      }
+      const left = this.expectInt(this.evaluateExpr(args[0] as ExprNode), line).value;
+      const right = this.expectInt(this.evaluateExpr(args[1] as ExprNode), line).value;
+      return { kind: "int", value: callee === "max" ? (left > right ? left : right) : left < right ? left : right };
+    }
+
+    if (callee === "swap") {
+      if (args.length !== 2) {
+        this.fail("swap requires exactly 2 arguments", line);
+      }
+      const left = args[0];
+      const right = args[1];
+      if (
+        left === undefined ||
+        right === undefined ||
+        (left.kind !== "Identifier" && left.kind !== "IndexExpr") ||
+        (right.kind !== "Identifier" && right.kind !== "IndexExpr")
+      ) {
+        this.fail("swap arguments must be lvalues", line);
+      }
+      const leftValue = this.readAssignTarget(left, line);
+      const rightValue = this.readAssignTarget(right, line);
+      this.writeAssignTarget(left, rightValue, line);
+      this.writeAssignTarget(right, leftValue, line);
+      return { kind: "void" };
+    }
+
+    if (callee === "sort") {
+      this.applyRangeBuiltin("sort", args, line);
+      return { kind: "void" };
+    }
+
+    if (callee === "reverse") {
+      this.applyRangeBuiltin("reverse", args, line);
+      return { kind: "void" };
+    }
+
+    if (callee === "fill") {
+      this.applyRangeBuiltin("fill", args, line);
+      return { kind: "void" };
+    }
+
+    return null;
+  }
 
   private resolveAssignedValue(
     operator: "=" | "+=" | "-=" | "*=" | "/=" | "%=",
@@ -343,6 +404,91 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
         return { kind: "int", value: left % right };
     }
   }
+
+  private applyRangeBuiltin(
+    callee: "sort" | "reverse" | "fill",
+    args: ExprNode[],
+    line: number,
+  ): void {
+    const range = this.expectVectorRange(args, callee, line);
+    const store = range.store;
+
+    if (callee === "reverse") {
+      store.values.reverse();
+      return;
+    }
+
+    if (callee === "fill") {
+      const fillArg = args[2];
+      if (fillArg === undefined) {
+        this.fail("fill requires exactly 3 arguments", line);
+      }
+      const fillValue = this.castToElementType(this.evaluateExpr(fillArg), store.elementType, line);
+      store.values = store.values.map(() => fillValue);
+      return;
+    }
+
+    const descending = this.isDescendingSortComparator(args[2], line);
+    store.values.sort((left, right) =>
+      compareSortableValues(left, right, descending, line, this.fail.bind(this)),
+    );
+  }
+
+  private expectVectorRange(
+    args: ExprNode[],
+    callee: "sort" | "reverse" | "fill",
+    line: number,
+  ): { store: { values: RuntimeValue[]; elementType: "int" | "bool" | "string"; dynamic: boolean } } {
+    const minArgs = callee === "fill" ? 3 : 2;
+    const maxArgs = callee === "sort" ? 3 : callee === "fill" ? 3 : 2;
+    if (args.length < minArgs || args.length > maxArgs) {
+      this.fail(`${callee} requires ${callee === "sort" ? "2 or 3" : callee === "fill" ? "exactly 3" : "exactly 2"} arguments`, line);
+    }
+
+    const beginExpr = args[0];
+    const endExpr = args[1];
+    if (
+      beginExpr === undefined ||
+      endExpr === undefined ||
+      beginExpr.kind !== "MethodCallExpr" ||
+      endExpr.kind !== "MethodCallExpr"
+    ) {
+      this.fail(`${callee} requires vector begin/end iterators`, line);
+    }
+    if (
+      beginExpr.method !== "begin" ||
+      endExpr.method !== "end" ||
+      beginExpr.args.length !== 0 ||
+      endExpr.args.length !== 0
+    ) {
+      this.fail(`${callee} requires vector begin/end iterators`, line);
+    }
+    if (!sameReceiver(beginExpr.receiver, endExpr.receiver)) {
+      this.fail(`${callee} requires iterators from the same vector`, line);
+    }
+
+    const receiver = this.evaluateExpr(beginExpr.receiver);
+    const arrayValue = this.expectArray(receiver, line);
+    const store = this.arrays.get(arrayValue.ref);
+    if (store === undefined) {
+      this.fail("invalid array reference", line);
+    }
+    if (!store.dynamic) {
+      this.fail(`${callee} requires a vector range`, line);
+    }
+
+    return { store };
+  }
+
+  private isDescendingSortComparator(expr: ExprNode | undefined, line: number): boolean {
+    if (expr === undefined) {
+      return false;
+    }
+    if (expr.kind === "CallExpr" && expr.callee === "greater" && expr.args.length === 0) {
+      return true;
+    }
+    this.fail("unsupported sort comparator", line);
+  }
 }
 
 function compareValues(
@@ -395,4 +541,57 @@ function comparePrimitive<T extends bigint | boolean | string>(
     case ">=":
       return left >= right;
   }
+}
+
+function sameReceiver(left: ExprNode, right: ExprNode): boolean {
+  if (left.kind !== right.kind) {
+    return false;
+  }
+  switch (left.kind) {
+    case "Identifier":
+      return right.kind === "Identifier" && left.name === right.name;
+    case "IndexExpr":
+      return false;
+    case "Literal":
+      return false;
+    case "CallExpr":
+      return false;
+    case "MethodCallExpr":
+      return false;
+    case "UnaryExpr":
+      return false;
+    case "BinaryExpr":
+      return false;
+    case "AssignExpr":
+      return false;
+  }
+}
+
+function compareSortableValues(
+  left: RuntimeValue,
+  right: RuntimeValue,
+  descending: boolean,
+  line: number,
+  fail: (message: string, line: number) => never,
+): number {
+  const leftValue = sortablePrimitive(left, line, fail);
+  const rightValue = sortablePrimitive(right, line, fail);
+  let result = 0;
+  if (leftValue < rightValue) {
+    result = -1;
+  } else if (leftValue > rightValue) {
+    result = 1;
+  }
+  return descending ? -result : result;
+}
+
+function sortablePrimitive(
+  value: RuntimeValue,
+  line: number,
+  fail: (message: string, line: number) => never,
+): bigint | boolean | string {
+  if (value.kind === "int" || value.kind === "bool" || value.kind === "string") {
+    return value.value;
+  }
+  fail("sort/reverse/fill supports only primitive vector values", line);
 }

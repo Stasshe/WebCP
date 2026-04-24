@@ -428,28 +428,166 @@ function validateCall(
   context: ValidationContext,
 ): TypeNode | null {
   const fn = context.functions.get(callee);
-  if (fn === undefined) {
-    pushError(context, line, col, `'${callee}' was not declared in this scope`);
-    args.forEach((arg) => validateExpr(arg, context));
+  if (fn !== undefined) {
+    if (args.length < fn.params.length) {
+      pushError(context, line, col, `too few arguments to function '${callee}'`);
+    } else if (args.length > fn.params.length) {
+      pushError(context, line, col, `too many arguments to function '${callee}'`);
+    }
+
+    for (let i = 0; i < args.length; i += 1) {
+      const arg = args[i];
+      const param = fn.params[i];
+      if (arg === undefined) {
+        continue;
+      }
+      validateExpr(arg, context, param?.type);
+    }
+
+    return fn.returnType;
+  }
+
+  const builtin = validateBuiltinCall(callee, args, line, col, context);
+  if (builtin !== undefined) {
+    return builtin;
+  }
+
+  pushError(context, line, col, `'${callee}' was not declared in this scope`);
+  args.forEach((arg) => validateExpr(arg, context));
+  return null;
+}
+
+function validateBuiltinCall(
+  callee: string,
+  args: ExprNode[],
+  line: number,
+  col: number,
+  context: ValidationContext,
+): TypeNode | null | undefined {
+  if (callee === "abs") {
+    if (args.length !== 1) {
+      pushError(context, line, col, "abs requires exactly 1 argument");
+    }
+    validateExpr(args[0] ?? null, context, "int");
+    return { kind: "PrimitiveType", name: "int" };
+  }
+
+  if (callee === "max" || callee === "min") {
+    if (args.length !== 2) {
+      pushError(context, line, col, `${callee} requires exactly 2 arguments`);
+    }
+    validateExpr(args[0] ?? null, context, "int");
+    validateExpr(args[1] ?? null, context, "int");
+    return { kind: "PrimitiveType", name: "int" };
+  }
+
+  if (callee === "swap") {
+    if (args.length !== 2) {
+      pushError(context, line, col, "swap requires exactly 2 arguments");
+    }
+    const left = args[0];
+    const right = args[1];
+    if (left !== undefined) {
+      const leftType = validateExpr(left, context);
+      if (!isAssignableExpr(left)) {
+        pushError(context, left.line, left.col, "swap arguments must be lvalues");
+      }
+      if (right !== undefined) {
+        const rightType = validateExpr(right, context, leftType ?? undefined);
+        if (!isAssignableExpr(right)) {
+          pushError(context, right.line, right.col, "swap arguments must be lvalues");
+        }
+        if (leftType !== null && rightType !== null && !isAssignable(rightType, leftType)) {
+          pushError(context, line, col, `cannot convert '${typeToString(rightType)}' to '${typeToString(leftType)}'`);
+        }
+      }
+    } else if (right !== undefined) {
+      validateExpr(right, context);
+    }
+    return { kind: "PrimitiveType", name: "void" };
+  }
+
+  if (callee === "sort" || callee === "reverse" || callee === "fill") {
+    return validateRangeBuiltin(callee, args, line, col, context);
+  }
+
+  if (callee === "greater") {
+    pushError(context, line, col, "'greater' was not declared in this scope");
     return null;
   }
 
-  if (args.length < fn.params.length) {
-    pushError(context, line, col, `too few arguments to function '${callee}'`);
-  } else if (args.length > fn.params.length) {
-    pushError(context, line, col, `too many arguments to function '${callee}'`);
+  return undefined;
+}
+
+function validateRangeBuiltin(
+  callee: "sort" | "reverse" | "fill",
+  args: ExprNode[],
+  line: number,
+  col: number,
+  context: ValidationContext,
+): TypeNode | null {
+  const expectedArgs = callee === "sort" ? "2 or 3" : callee === "fill" ? "exactly 3" : "exactly 2";
+  const minArgs = callee === "fill" ? 3 : 2;
+  const maxArgs = callee === "sort" ? 3 : callee === "fill" ? 3 : 2;
+  if (args.length < minArgs || args.length > maxArgs) {
+    pushError(context, line, col, `${callee} requires ${expectedArgs} arguments`);
   }
 
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-    const param = fn.params[i];
-    if (arg === undefined) {
-      continue;
+  const rangeType = validateVectorRangeArgs(args[0], args[1], callee, context, line, col);
+
+  if (callee === "fill") {
+    validateExpr(args[2] ?? null, context, rangeType?.elementType);
+  } else if (callee === "sort" && args[2] !== undefined) {
+    const comparator = args[2];
+    if (!(comparator.kind === "CallExpr" && comparator.callee === "greater" && comparator.args.length === 0)) {
+      pushError(context, comparator.line, comparator.col, "unsupported sort comparator");
     }
-    validateExpr(arg, context, param?.type);
   }
 
-  return fn.returnType;
+  return { kind: "PrimitiveType", name: "void" };
+}
+
+function validateVectorRangeArgs(
+  beginExpr: ExprNode | undefined,
+  endExpr: ExprNode | undefined,
+  callee: string,
+  context: ValidationContext,
+  line: number,
+  col: number,
+): Extract<TypeNode, { kind: "VectorType" }> | null {
+  if (
+    beginExpr === undefined ||
+    endExpr === undefined ||
+    beginExpr.kind !== "MethodCallExpr" ||
+    endExpr.kind !== "MethodCallExpr" ||
+    beginExpr.method !== "begin" ||
+    endExpr.method !== "end" ||
+    beginExpr.args.length !== 0 ||
+    endExpr.args.length !== 0
+  ) {
+    pushError(context, line, col, `${callee} requires vector begin/end iterators`);
+    if (beginExpr !== undefined) {
+      validateExpr(beginExpr, context);
+    }
+    if (endExpr !== undefined) {
+      validateExpr(endExpr, context);
+    }
+    return null;
+  }
+
+  if (!sameReceiver(beginExpr.receiver, endExpr.receiver)) {
+    pushError(context, line, col, `${callee} requires iterators from the same vector`);
+  }
+
+  const receiverType = inferExprType(beginExpr.receiver, context);
+  if (receiverType === null) {
+    return null;
+  }
+  if (receiverType.kind !== "VectorType") {
+    pushError(context, line, col, `${callee} requires a vector range`);
+    return null;
+  }
+  return receiverType;
 }
 
 function validateMethodCall(
@@ -472,6 +610,12 @@ function validateMethodCall(
   }
 
   switch (method) {
+    case "begin":
+    case "end":
+      if (args.length !== 0) {
+        pushError(context, line, col, `${method} requires no arguments`);
+      }
+      return receiverType;
     case "push_back":
       if (args.length !== 1) {
         pushError(context, line, col, "push_back requires exactly 1 argument");
@@ -617,6 +761,10 @@ function isStringType(type: TypeNode): boolean {
 
 function isInputTargetType(type: TypeNode): boolean {
   return isPrimitiveType(type) && type.name !== "void";
+}
+
+function sameReceiver(left: ExprNode, right: ExprNode): boolean {
+  return left.kind === "Identifier" && right.kind === "Identifier" && left.name === right.name;
 }
 
 function pushError(context: ValidationContext, line: number, col: number, message: string): void {

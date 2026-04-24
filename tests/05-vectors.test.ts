@@ -181,4 +181,80 @@ int main() {
     expect(result.status).toBe("done");
     expect(result.output.stdout).toBe("hello world\n");
   });
+
+  it("builtins abs max min swap", () => {
+    const source = `
+int main() {
+  int a = -5;
+  int b = 3;
+  cout << abs(a) << "\\n";
+  cout << max(a, b) << "\\n";
+  cout << min(a, b) << "\\n";
+  swap(a, b);
+  cout << a << " " << b << "\\n";
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("5\n3\n-5\n3 -5\n");
+  });
+
+  it("sort vector ascending", () => {
+    const source = `
+int main() {
+  vector<int> v;
+  v.push_back(3);
+  v.push_back(1);
+  v.push_back(2);
+  sort(v.begin(), v.end());
+  for (int i = 0; i < v.size(); i++) {
+    cout << v[i] << "\\n";
+  }
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("1\n2\n3\n");
+  });
+
+  it("sort vector descending with greater", () => {
+    const source = `
+int main() {
+  vector<int> v;
+  v.push_back(3);
+  v.push_back(1);
+  v.push_back(2);
+  sort(v.begin(), v.end(), greater<int>());
+  for (int i = 0; i < v.size(); i++) {
+    cout << v[i] << "\\n";
+  }
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("3\n2\n1\n");
+  });
+
+  it("reverse and fill vector", () => {
+    const source = `
+int main() {
+  vector<int> v;
+  v.push_back(1);
+  v.push_back(2);
+  v.push_back(3);
+  reverse(v.begin(), v.end());
+  fill(v.begin(), v.end(), 7);
+  for (int i = 0; i < v.size(); i++) {
+    cout << v[i] << "\\n";
+  }
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("7\n7\n7\n");
+  });
 });
