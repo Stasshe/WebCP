@@ -279,8 +279,19 @@ class Interpreter {
               this.fail(`cannot convert '${token}' to bool`, target.line);
             }
             this.assign(target.name, { kind: "bool", value: token === "1" }, target.line);
-          } else if (current.kind === "string" || current.kind === "uninitialized") {
+          } else if (current.kind === "string") {
             this.assign(target.name, { kind: "string", value: token }, target.line);
+          } else if (current.kind === "uninitialized") {
+            if (current.expected === "int") {
+              this.assign(target.name, { kind: "int", value: BigInt(token) }, target.line);
+            } else if (current.expected === "bool") {
+              if (token !== "0" && token !== "1") {
+                this.fail(`cannot convert '${token}' to bool`, target.line);
+              }
+              this.assign(target.name, { kind: "bool", value: token === "1" }, target.line);
+            } else {
+              this.assign(target.name, { kind: "string", value: token }, target.line);
+            }
           } else {
             this.fail("invalid cin target", target.line);
           }
@@ -448,6 +459,9 @@ class Interpreter {
 
   private assignWithCurrentType(current: RuntimeValue, value: RuntimeValue, line: number): RuntimeValue {
     if (current.kind === "uninitialized") {
+      if (value.kind !== current.expected) {
+        this.fail(`cannot assign '${value.kind}' to '${current.expected}'`, line);
+      }
       return value;
     }
     if (current.kind !== value.kind) {
@@ -544,6 +558,9 @@ class Interpreter {
     }
 
     if (value.kind === "uninitialized") {
+      if (value.expected !== normalizedType) {
+        this.fail(`cannot convert '${value.expected}' to '${normalizedType}'`, line);
+      }
       return value;
     }
 

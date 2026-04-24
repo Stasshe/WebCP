@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { compile, compileAndRun } from "../dist/index.js";
+import { compile, compileAndRun } from "../dist/index.esm.js";
 
 function test(name, fn) {
   try {

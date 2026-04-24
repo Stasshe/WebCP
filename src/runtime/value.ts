@@ -5,7 +5,7 @@ export type RuntimeValue =
   | { kind: "bool"; value: boolean }
   | { kind: "string"; value: string }
   | { kind: "void" }
-  | { kind: "uninitialized" };
+  | { kind: "uninitialized"; expected: "int" | "bool" | "string" };
 
 export function defaultValueForType(typeName: PrimitiveTypeName): RuntimeValue {
   switch (typeName) {
@@ -25,7 +25,10 @@ export function uninitializedForType(typeName: PrimitiveTypeName): RuntimeValue 
   if (typeName === "void") {
     return { kind: "void" };
   }
-  return { kind: "uninitialized" };
+  if (typeName === "long long") {
+    return { kind: "uninitialized", expected: "int" };
+  }
+  return { kind: "uninitialized", expected: typeName };
 }
 
 export function stringifyValue(value: RuntimeValue): string {
