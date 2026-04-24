@@ -140,6 +140,11 @@ function validateStatement(stmt: StatementNode, context: ValidationContext): voi
     case "BlockStmt":
       validateBlock(stmt.statements, context);
       return;
+    case "DeclGroupStmt":
+      for (const decl of stmt.declarations) {
+        validateDecl(decl, context);
+      }
+      return;
     case "VarDecl":
     case "ArrayDecl":
     case "VectorDecl":
@@ -162,6 +167,10 @@ function validateStatement(stmt: StatementNode, context: ValidationContext): voi
       pushScope(context);
       if (stmt.init.kind === "varDecl") {
         validateDecl(stmt.init.value, context);
+      } else if (stmt.init.kind === "declGroup") {
+        for (const decl of stmt.init.value) {
+          validateDecl(decl, context);
+        }
       } else if (stmt.init.kind === "expr") {
         validateExpr(stmt.init.value, context);
       }

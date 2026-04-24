@@ -22,8 +22,7 @@
 | 構造体・クラス（`struct`, `class`） | |
 | テンプレート（`template<>`） | |
 | 関数ポインタ | |
-| 名前空間（`namespace`） | `using namespace std;` を含め非対応 |
-| カンマ区切り宣言（`int a, b;`） | 単一宣言のみ対応 |
+| 名前空間（`namespace`） | `using namespace std;` のみ特別扱いで許可 |
 | プリプロセッサ（`#include`, `#define` 等） | 将来対応予定 |
 | ビット演算子（`&`, `|`, `^`, `~`, `<<`, `>>`） | 将来対応候補 |
 | キャスト構文（`(int)x`, `static_cast<>` 等） | |
@@ -114,6 +113,8 @@ int a = 0;
 int a = b + 1;
 bool flag = true;
 string s = "hello";
+int x = 1, y = 2;
+int a[2] = {1, 2}, b = 3;
 ```
 
 ### 4.2 グローバル変数
@@ -122,8 +123,7 @@ string s = "hello";
 
 ```cpp
 int dp[1001];
-int n;
-int m;
+int n, m;
 
 int main() {
     cin >> n >> m;
@@ -310,8 +310,8 @@ cin >> s;          // string（空白区切りで1トークン）
 
 - `int`、`long long`、`bool`、`string` 型変数への入力に対応
 - 配列要素への直接入力も可：`cin >> a[i]`
-- `using namespace std;` は不要。`cin` / `cout` / `cerr` / `endl` は予約語として直接使える
-- ただし `using namespace std;` そのものの構文は非対応
+- `using namespace std;` は書いてもよい。意味的には無視される
+- `cin` / `cout` / `cerr` / `endl` は `using namespace std;` がなくても直接使える
 
 ### 8.2 `cout`
 
@@ -543,9 +543,12 @@ statement     = var_decl
               | continue_stmt
               | expr_stmt ;
 
-var_decl      = type ident [ "=" expr ] ";" ;
-array_decl    = type ident "[" int_lit "]" [ "=" "{" [ expr_list ] "}" ] ";" ;
-vector_decl   = "vector" "<" type ">" ident [ "(" [ expr [ "," expr ] ] ")" ] ";" ;
+var_decl      = type var_item { "," var_item } ";" ;
+var_item      = ident [ "=" expr ] ;
+array_decl    = type array_item { "," array_item } ";" ;
+array_item    = ident "[" int_lit "]" [ "=" "{" [ expr_list ] "}" ] ;
+vector_decl   = "vector" "<" type ">" vector_item { "," vector_item } ";" ;
+vector_item   = ident [ "(" [ expr [ "," expr ] ] ")" ] ;
 
 if_stmt       = "if" "(" expr ")" stmt_or_block
                 { "else" "if" "(" expr ")" stmt_or_block }

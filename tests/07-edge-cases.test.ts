@@ -280,6 +280,53 @@ int main() {
     expect(result.output.stdout).toBe("6\n");
   });
 
+  it("comma-separated declarations", () => {
+    const source = `
+int globalA = 2, globalB = 3;
+
+int main() {
+  int a = 1, b = 4, c;
+  c = a + b + globalA + globalB;
+  cout << c << "\\n";
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("10\n");
+  });
+
+  it("comma-separated declarations with arrays and vectors", () => {
+    const source = `
+int main() {
+  int a[2] = {1, 2}, b = 3;
+  vector<int> x, y(2, 5);
+  x.push_back(a[0] + b);
+  cout << x[0] << "\\n";
+  cout << y[0] << " " << y[1] << "\\n";
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("4\n5 5\n");
+  });
+
+  it("for init supports comma-separated declarations", () => {
+    const source = `
+int main() {
+  for (int i = 0, j = 3; i < 3; i++) {
+    cout << i << " " << j << "\\n";
+    j--;
+  }
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("0 3\n1 2\n2 1\n");
+  });
+
   it("string comparison", () => {
     const source = `
 int main() {

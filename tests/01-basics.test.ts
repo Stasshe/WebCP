@@ -85,4 +85,18 @@ int main() {
     expect(result.status).toBe("done");
     expect(result.output.stdout).toBe("x=100 150\n");
   });
+
+  it("using namespace std is accepted", () => {
+    const source = `
+using namespace std;
+
+int main() {
+  cout << "ok\\n";
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("ok\n");
+  });
 });

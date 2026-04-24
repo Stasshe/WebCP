@@ -48,6 +48,7 @@ export type ParamNode = NodeBase & {
 
 export type StatementNode =
   | BlockStmtNode
+  | DeclGroupStmtNode
   | VarDeclNode
   | ArrayDeclNode
   | VectorDeclNode
@@ -65,6 +66,11 @@ export type StatementNode =
 export type BlockStmtNode = NodeBase & {
   kind: "BlockStmt";
   statements: StatementNode[];
+};
+
+export type DeclGroupStmtNode = NodeBase & {
+  kind: "DeclGroupStmt";
+  declarations: Array<VarDeclNode | ArrayDeclNode | VectorDeclNode>;
 };
 
 export type VarDeclNode = NodeBase & {
@@ -106,6 +112,7 @@ export type ForStmtNode = NodeBase & {
 export type ForInitNode =
   | { kind: "none" }
   | { kind: "varDecl"; value: VarDeclNode }
+  | { kind: "declGroup"; value: VarDeclNode[] }
   | { kind: "expr"; value: ExprNode };
 
 export type WhileStmtNode = NodeBase & {

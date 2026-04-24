@@ -13,6 +13,24 @@ class Parser extends ExpressionParser {
     const functions: ProgramNode["functions"] = [];
 
     while (!this.isAtEnd()) {
+      if (this.matchKeyword("using")) {
+        const namespaceOkay = this.consumeKeyword("namespace", "expected 'namespace' after 'using'");
+        const namespaceName = namespaceOkay
+          ? this.consumeIdentifier("expected namespace name")
+          : null;
+        const semicolonOkay =
+          namespaceName !== null &&
+          namespaceName.text === "std" &&
+          this.consumeSymbol(";", "expected ';' after using directive");
+        if (!namespaceOkay || namespaceName === null || namespaceName.text !== "std" || !semicolonOkay) {
+          if (namespaceName !== null && namespaceName.text !== "std") {
+            this.errorAt(namespaceName, "only 'using namespace std;' is supported");
+          }
+          this.synchronizeTopLevel();
+        }
+        continue;
+      }
+
       if (!this.checkTypeStart()) {
         this.errorAtCurrent("expected type specifier");
         this.synchronizeTopLevel();
@@ -50,39 +68,12 @@ class Parser extends ExpressionParser {
         continue;
       }
 
-      if (this.matchSymbol("[")) {
-        const arrayDecl = this.finishArrayDecl(type, nameToken);
-        if (arrayDecl !== null) {
-          globals.push(arrayDecl);
-        } else {
-          this.synchronizeTopLevel();
-        }
-        continue;
-      }
-
-      if (type.kind === "VectorType") {
-        const decl = this.finishVectorDecl(type, nameToken);
-        if (decl !== null) {
-          globals.push(decl);
-        } else {
-          this.synchronizeTopLevel();
-        }
-        continue;
-      }
-
-      const initializer = this.matchSymbol("=") ? this.parseExpression() : null;
-      if (!this.consumeSymbol(";", "expected ';' after declaration")) {
+      const declarations = this.parseDeclarationList(type, nameToken);
+      if (declarations !== null) {
+        globals.push(...declarations);
+      } else {
         this.synchronizeTopLevel();
-        continue;
       }
-      globals.push({
-        kind: "VarDecl",
-        type,
-        name: nameToken.text,
-        initializer,
-        line: nameToken.line,
-        col: nameToken.col,
-      });
     }
 
     if (!functions.some((f) => f.name === "main")) {

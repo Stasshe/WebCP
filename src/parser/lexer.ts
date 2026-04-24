@@ -7,6 +7,8 @@ const KEYWORDS = new Set<string>([
   "string",
   "void",
   "vector",
+  "using",
+  "namespace",
   "if",
   "else",
   "for",

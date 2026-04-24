@@ -159,6 +159,11 @@ class Interpreter extends InterpreterEvaluator {
       case "BlockStmt":
         this.executeBlock(stmt, true);
         return;
+      case "DeclGroupStmt":
+        for (const decl of stmt.declarations) {
+          this.executeStatement(decl);
+        }
+        return;
       case "VarDecl": {
         const value =
           stmt.initializer === null
@@ -218,6 +223,18 @@ class Interpreter extends InterpreterEvaluator {
                     initDecl.line,
                   );
             this.define(initDecl.name, value);
+          } else if (stmt.init.kind === "declGroup") {
+            for (const initDecl of stmt.init.value) {
+              const value =
+                initDecl.initializer === null
+                  ? uninitializedForType(this.expectPrimitiveType(initDecl.type, initDecl.line))
+                  : this.assertType(
+                      initDecl.type,
+                      this.evaluateExpr(initDecl.initializer),
+                      initDecl.line,
+                    );
+              this.define(initDecl.name, value);
+            }
           } else if (stmt.init.kind === "expr") {
             this.evaluateExpr(stmt.init.value);
           }

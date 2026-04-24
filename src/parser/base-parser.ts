@@ -3,6 +3,7 @@ import type {
   AssignTargetNode,
   BlockStmtNode,
   CompileError,
+  DeclGroupStmtNode,
   ExprNode,
   ForInitNode,
   FunctionDeclNode,
@@ -129,24 +130,21 @@ export abstract class BaseParser {
       if (nameToken === null) {
         return null;
       }
-      if (this.matchSymbol("[")) {
-        return this.finishArrayDecl(type, nameToken);
-      }
-      if (type.kind === "VectorType") {
-        return this.finishVectorDecl(type, nameToken);
-      }
-      const initializer = this.matchSymbol("=") ? this.parseExpression() : null;
-      if (!this.consumeSymbol(";", "expected ';' after variable declaration")) {
+      const declarations = this.parseDeclarationList(type, nameToken);
+      if (declarations === null) {
         return null;
       }
-      return {
-        kind: "VarDecl",
-        type,
-        name: nameToken.text,
-        initializer,
-        line: nameToken.line,
-        col: nameToken.col,
+      if (declarations.length === 1) {
+        return declarations[0] as StatementNode;
+      }
+      const first = declarations[0] as StatementNode;
+      const group: DeclGroupStmtNode = {
+        kind: "DeclGroupStmt",
+        declarations,
+        line: first.line,
+        col: first.col,
       };
+      return group;
     }
 
     if (this.matchKeyword("if")) {
@@ -351,14 +349,17 @@ export abstract class BaseParser {
     }
 
     if (this.peekPrimitiveTypeKeyword()) {
-      const decl = this.parseVarDeclNoSemicolon();
-      if (decl === null) {
+      const decls = this.parseVarDeclListNoSemicolon();
+      if (decls === null || decls.length === 0) {
         return { kind: "none" };
       }
       if (!this.consumeSymbol(";", "expected ';' after for initializer declaration")) {
         return { kind: "none" };
       }
-      return { kind: "varDecl", value: decl };
+      if (decls.length === 1) {
+        return { kind: "varDecl", value: decls[0] as VarDeclNode };
+      }
+      return { kind: "declGroup", value: decls as VarDeclNode[] };
     }
 
     const value = this.parseExpression();
@@ -390,7 +391,112 @@ export abstract class BaseParser {
     };
   }
 
-  protected finishArrayDecl(type: TypeNode, nameToken: Token): ArrayDeclNode | null {
+  protected parseVarDeclListNoSemicolon(): VarDeclNode[] | null {
+    const type = this.parsePrimitiveType();
+    if (type === null) {
+      return null;
+    }
+    const nameToken = this.consumeIdentifier("expected variable name");
+    if (nameToken === null) {
+      return null;
+    }
+    const declarations = this.parseVarDeclaratorList(type, nameToken);
+    return declarations;
+  }
+
+  protected parseDeclarationList(
+    type: TypeNode,
+    firstNameToken: Token,
+  ): Array<VarDeclNode | ArrayDeclNode | VectorDeclNode> | null {
+    const declarations = this.parseDeclaratorList(type, firstNameToken);
+    if (declarations === null) {
+      return null;
+    }
+    if (!this.consumeSymbol(";", "expected ';' after declaration")) {
+      return null;
+    }
+    return declarations;
+  }
+
+  protected parseDeclaratorList(
+    type: TypeNode,
+    firstNameToken: Token,
+  ): Array<VarDeclNode | ArrayDeclNode | VectorDeclNode> | null {
+    const declarations: Array<VarDeclNode | ArrayDeclNode | VectorDeclNode> = [];
+    const first = this.parseSingleDeclarator(type, firstNameToken);
+    if (first === null) {
+      return null;
+    }
+    declarations.push(first);
+
+    while (this.matchSymbol(",")) {
+      const nameToken = this.consumeIdentifier("expected variable name");
+      if (nameToken === null) {
+        return null;
+      }
+      const next = this.parseSingleDeclarator(type, nameToken);
+      if (next === null) {
+        return null;
+      }
+      declarations.push(next);
+    }
+
+    return declarations;
+  }
+
+  protected parseVarDeclaratorList(type: PrimitiveTypeNode, firstNameToken: Token): VarDeclNode[] | null {
+    const declarations: VarDeclNode[] = [];
+    const first = this.parseSingleVarDeclarator(type, firstNameToken);
+    if (first === null) {
+      return null;
+    }
+    declarations.push(first);
+
+    while (this.matchSymbol(",")) {
+      const nameToken = this.consumeIdentifier("expected variable name");
+      if (nameToken === null) {
+        return null;
+      }
+      const next = this.parseSingleVarDeclarator(type, nameToken);
+      if (next === null) {
+        return null;
+      }
+      declarations.push(next);
+    }
+
+    return declarations;
+  }
+
+  protected parseSingleDeclarator(
+    type: TypeNode,
+    nameToken: Token,
+  ): VarDeclNode | ArrayDeclNode | VectorDeclNode | null {
+    if (this.matchSymbol("[")) {
+      return this.finishArrayDecl(type, nameToken, false);
+    }
+    if (type.kind === "VectorType") {
+      return this.finishVectorDecl(type, nameToken, false);
+    }
+    if (!isPrimitiveType(type)) {
+      this.errorAt(nameToken, `invalid declarator for type '${type.kind}'`);
+      return null;
+    }
+    return this.parseSingleVarDeclarator(type, nameToken);
+  }
+
+  protected parseSingleVarDeclarator(type: PrimitiveTypeNode, nameToken: Token): VarDeclNode | null {
+    const initializer = this.matchSymbol("=") ? this.parseExpression() : null;
+    return {
+      kind: "VarDecl",
+      type,
+      name: nameToken.text,
+      initializer,
+      line: nameToken.line,
+      col: nameToken.col,
+    };
+  }
+
+  protected finishArrayDecl(type: TypeNode, nameToken: Token, consumeTerminator = true): ArrayDeclNode | null {
     if (!isPrimitiveType(type)) {
       this.errorAt(nameToken, "array element type must be primitive");
       return null;
@@ -427,7 +533,7 @@ export abstract class BaseParser {
       }
     }
 
-    if (!this.consumeSymbol(";", "expected ';' after array declaration")) {
+    if (consumeTerminator && !this.consumeSymbol(";", "expected ';' after array declaration")) {
       return null;
     }
 
@@ -442,7 +548,11 @@ export abstract class BaseParser {
     };
   }
 
-  protected finishVectorDecl(type: VectorDeclNode["type"], nameToken: Token): VectorDeclNode | null {
+  protected finishVectorDecl(
+    type: VectorDeclNode["type"],
+    nameToken: Token,
+    consumeTerminator = true,
+  ): VectorDeclNode | null {
     const constructorArgs: ExprNode[] = [];
     if (this.matchSymbol("(")) {
       if (!this.matchSymbol(")")) {
@@ -456,7 +566,7 @@ export abstract class BaseParser {
       }
     }
 
-    if (!this.consumeSymbol(";", "expected ';' after vector declaration")) {
+    if (consumeTerminator && !this.consumeSymbol(";", "expected ';' after vector declaration")) {
       return null;
     }
 
@@ -651,7 +761,7 @@ export abstract class BaseParser {
 
   protected synchronizeTopLevel(): void {
     while (!this.isAtEnd()) {
-      if (this.checkTypeStart()) {
+      if (this.checkTypeStart() || this.checkKeyword("using")) {
         return;
       }
       this.advance();
