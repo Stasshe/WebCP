@@ -137,7 +137,7 @@ export function Playground() {
     });
   };
 
-  const handleStart = () => {
+  const handleLaunchAndBreak = () => {
     runAction((session) => session.stepInto(), { restart: true });
   };
 
@@ -145,7 +145,7 @@ export function Playground() {
     runAction((session) => session.stepInto(), { restart: true });
   };
 
-  const handleRun = () => {
+  const handleRunToEnd = () => {
     runAction((session) => session.run(), { restart: isDirty });
   };
 
@@ -189,113 +189,96 @@ export function Playground() {
 
   return (
     <main className="ide-shell">
-      <aside className="sidebar">
+      <aside className="sidebar left-panel">
         <section className="tool-panel">
           <div className="panel-title-row">
             <div>
-              <p className="panel-kicker">Debugger</p>
-              <h1>ClientSideCPP</h1>
+              <p className="panel-kicker">Left Panel</p>
+              <h1>Debugger & Status</h1>
             </div>
             <span className={`status-pill status-${execution.status}`}>{execution.status}</span>
           </div>
 
-          <div className="toolbar">
-            <button type="button" onClick={handleStart} disabled={isPending}>
-              Start
-            </button>
-            <button type="button" onClick={handleRun} disabled={isPending}>
-              {execution.status === "paused" ? "Continue" : "Run"}
-            </button>
-            <button type="button" onClick={handleRestart} disabled={isPending}>
-              Restart
-            </button>
-          </div>
+          <div className="control-card">
+            <h2 className="section-title">Execution Controls</h2>
+            <div className="toolbar">
+              <button type="button" className="btn-primary" onClick={handleLaunchAndBreak} disabled={isPending}>
+                Launch Debugger
+              </button>
+              <button type="button" className="btn-success" onClick={handleRunToEnd} disabled={isPending}>
+                {execution.status === "paused" ? "Continue To End" : "Run All"}
+              </button>
+              <button type="button" className="btn-danger" onClick={handleRestart} disabled={isPending}>
+                Restart
+              </button>
+            </div>
 
-          <div className="toolbar compact">
-            <button type="button" onClick={handleStepInto} disabled={!canStep || isPending}>
-              Step Into
-            </button>
-            <button type="button" onClick={handleStepOver} disabled={!canStep || isPending}>
-              Step Over
-            </button>
-            <button type="button" onClick={handleStepOut} disabled={!canStep || isPending}>
-              Step Out
-            </button>
+            <div className="toolbar compact mt-2">
+              <button type="button" onClick={handleStepInto} disabled={!canStep || isPending}>
+                Step Into(↓)
+              </button>
+              <button type="button" onClick={handleStepOver} disabled={!canStep || isPending}>
+                Step Over(→)
+              </button>
+              <button type="button" onClick={handleStepOut} disabled={!canStep || isPending}>
+                Step Out(↑)
+              </button>
+            </div>
           </div>
 
           <dl className="summary-grid">
-            <div>
+            <div className="grid-item">
               <dt>Line</dt>
               <dd>{execution.currentLine}</dd>
             </div>
-            <div>
-              <dt>Pause</dt>
+            <div className="grid-item">
+              <dt>Pause Reason</dt>
               <dd>{execution.pauseReason ?? "-"}</dd>
             </div>
-            <div>
-              <dt>Steps</dt>
+            <div className="grid-item">
+              <dt>Steps Took</dt>
               <dd>{execution.stepCount}</dd>
             </div>
-            <div>
+            <div className="grid-item">
               <dt>BPs</dt>
               <dd>{breakpoints.length}</dd>
             </div>
           </dl>
 
-          {isDirty ? <p className="notice">Source/Input changed. Next action restarts the session.</p> : null}
+          {isDirty ? <p className="notice">⚠️ Source code or input has changed. Proceeding will restart the session.</p> : null}
           {execution.error ? (
-            <pre className="output-panel error-panel">{execution.error.message}</pre>
+            <pre className="output-panel error-panel p-2 mt-2">{execution.error.message}</pre>
           ) : null}
         </section>
 
-        <section className="tool-panel fill-panel">
+        <section className="tool-panel fill-panel state-view-area">
           <div className="panel-heading">
-            <h2>Input</h2>
+            <h2 className="section-title">System State (Scrollable)</h2>
           </div>
-          <textarea
-            className="input-editor"
-            spellCheck={false}
-            value={input}
-            onChange={(event) => {
-              setInput(event.target.value);
-              setIsDirty(true);
-              resetExecution();
-            }}
-          />
-        </section>
-
-        <section className="tool-panel fill-panel">
-          <div className="panel-heading">
-            <h2>Call Stack</h2>
-          </div>
-          <div className="panel-scroll">
-            <ul className="item-list">
-              {execution.callStack.length === 0 ? (
-                <li className="muted">No active frames</li>
-              ) : (
-                execution.callStack
-                  .slice()
-                  .reverse()
-                  .map((frame, index) => (
-                    <li key={`${frame.functionName}-${frame.line}-${index}`} className="stack-item">
-                      <strong>{frame.functionName}()</strong>
-                      <span>line {frame.line}</span>
-                    </li>
-                  ))
-              )}
-            </ul>
-          </div>
-        </section>
-
-        <section className="tool-panel fill-panel">
-          <div className="panel-heading">
-            <h2>Variables</h2>
-          </div>
-          <div className="panel-scroll debug-sections">
+          <div className="panel-scroll scrollable-container">
             <div className="debug-group">
-              <h3>Locals</h3>
+              <h3>Call Stack</h3>
+              <ul className="item-list">
+                {execution.callStack.length === 0 ? (
+                  <li className="muted p-2 rounded bg-panel-soft">No active frames</li>
+                ) : (
+                  execution.callStack
+                    .slice()
+                    .reverse()
+                    .map((frame, index) => (
+                      <li key={`${frame.functionName}-${frame.line}-${index}`} className="stack-item">
+                        <strong>{frame.functionName}()</strong>
+                        <span className="badge">line {frame.line}</span>
+                      </li>
+                    ))
+                )}
+              </ul>
+            </div>
+
+            <div className="debug-group">
+              <h3>Local Variables</h3>
               {execution.localVars.length === 0 ? (
-                <p className="muted">No locals</p>
+                <p className="muted p-2 rounded bg-panel-soft">No local variables</p>
               ) : (
                 execution.localVars.map((scope, index) => (
                   <div key={`${scope.name}-${index}`} className="scope-card">
@@ -308,7 +291,7 @@ export function Playground() {
                           <li key={`${scope.name}-${variable.name}`} className="var-item">
                             <span className="var-name">{variable.name}</span>
                             <span className="var-kind">{variable.kind}</span>
-                            <code>{variable.value}</code>
+                            <code className="var-value">{variable.value}</code>
                           </li>
                         ))}
                       </ul>
@@ -319,16 +302,16 @@ export function Playground() {
             </div>
 
             <div className="debug-group">
-              <h3>Globals</h3>
+              <h3>Global Variables</h3>
               {execution.globalVars.length === 0 ? (
-                <p className="muted">No globals</p>
+                <p className="muted p-2 rounded bg-panel-soft">No globals</p>
               ) : (
                 <ul className="item-list">
                   {execution.globalVars.map((variable) => (
                     <li key={variable.name} className="var-item">
                       <span className="var-name">{variable.name}</span>
                       <span className="var-kind">{variable.kind}</span>
-                      <code>{variable.value}</code>
+                      <code className="var-value">{variable.value}</code>
                     </li>
                   ))}
                 </ul>
@@ -338,12 +321,12 @@ export function Playground() {
             <div className="debug-group">
               <h3>Arrays / Vectors</h3>
               {execution.arrays.length === 0 ? (
-                <p className="muted">No arrays</p>
+                <p className="muted p-2 rounded bg-panel-soft">No arrays in memory</p>
               ) : (
                 execution.arrays.map((array) => (
                   <div key={array.ref} className="scope-card">
                     <div className="scope-header">
-                      {getArrayLabel(array)} <span>{array.elementType}</span>
+                      {getArrayLabel(array)} <span className="badge">{array.elementType}</span>
                     </div>
                     <code className="array-view">[{array.values.join(", ")}]</code>
                   </div>
@@ -353,66 +336,94 @@ export function Playground() {
           </div>
         </section>
 
-        <section className="tool-panel fill-panel">
-          <div className="panel-heading">
-            <h2>Output</h2>
-          </div>
-          <div className="panel-scroll output-stack">
-            <div>
-              <h3>stdout</h3>
-              <pre className="output-panel">{execution.output.stdout || "(empty)"}</pre>
-            </div>
-            <div>
-              <h3>stderr</h3>
-              <pre className="output-panel">{execution.output.stderr || "(empty)"}</pre>
-            </div>
-          </div>
-        </section>
       </aside>
 
-      <section className="editor-panel">
+      <section className="editor-panel right-panel">
         <div className="editor-topbar">
-          <div className="editor-meta">
-            <span>playground.cpp</span>
-            <span>Current line: {execution.currentLine}</span>
-          </div>
-          <div className="editor-meta">
-            <span>{sourceLines.length} lines</span>
-            <span>{breakpoints.length > 0 ? `Breakpoints: ${breakpoints.join(", ")}` : "No breakpoints"}</span>
+          <div>
+            <p className="panel-kicker">Right Panel</p>
+            <h1 className="panel-title">Editor & I/O</h1>
           </div>
         </div>
 
-        <div className="editor-shell">
-          <div ref={gutterRef} className="editor-gutter" aria-hidden="true">
-            {sourceLines.map((_, index) => {
-              const line = index + 1;
-              const isCurrent = execution.currentLine === line;
-              const hasBreakpoint = breakpoints.includes(line);
-              return (
-                <button
-                  key={line}
-                  type="button"
-                  className={`gutter-line${isCurrent ? " current" : ""}${hasBreakpoint ? " breakpoint" : ""}`}
-                  onClick={() => toggleBreakpoint(line)}
-                >
-                  <span className="breakpoint-dot" />
-                  <span>{lineNumberLabel(line)}</span>
-                </button>
-              );
-            })}
+        <div className="editor-container">
+          <div className="editor-meta-bar">
+            <span className="badge">playground.cpp</span>
+            <span className="badge">Current Line: {execution.currentLine}</span>
+            <span className="badge muted">Total {sourceLines.length} lines</span>
+          </div>
+          
+          <div className="editor-shell editable-area">
+            <div ref={gutterRef} className="editor-gutter scrollable-container" aria-hidden="true" title="Click line number to toggle breakpoint">
+              {sourceLines.map((_, index) => {
+                const line = index + 1;
+                const isCurrent = execution.currentLine === line;
+                const hasBreakpoint = breakpoints.includes(line);
+                return (
+                  <button
+                    key={line}
+                    type="button"
+                    className={`gutter-line${isCurrent ? " current" : ""}${hasBreakpoint ? " breakpoint" : ""}`}
+                    onClick={() => toggleBreakpoint(line)}
+                    title={`Toggle Breakpoint on line ${line}`}
+                  >
+                    <span className="breakpoint-dot" />
+                    <span>{lineNumberLabel(line)}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <textarea
+              ref={editorRef}
+              className="source-editor scrollable-container"
+              spellCheck={false}
+              value={source}
+              onChange={(event) => {
+                setSource(event.target.value);
+                setIsDirty(true);
+                resetExecution();
+              }}
+              placeholder="Write your C++ code here..."
+            />
+          </div>
+        </div>
+
+        <div className="io-panel">
+          <div className="io-section inable">
+            <div className="panel-heading">
+              <h2 className="section-title">Standard Input (Editable)</h2>
+            </div>
+            <textarea
+              className="input-editor editable-area scrollable-container"
+              spellCheck={false}
+              value={input}
+              onChange={(event) => {
+                setInput(event.target.value);
+                setIsDirty(true);
+                resetExecution();
+              }}
+              placeholder="Enter standard input here..."
+            />
           </div>
 
-          <textarea
-            ref={editorRef}
-            className="source-editor"
-            spellCheck={false}
-            value={source}
-            onChange={(event) => {
-              setSource(event.target.value);
-              setIsDirty(true);
-              resetExecution();
-            }}
-          />
+          <div className="io-section">
+            <div className="panel-heading">
+              <h2 className="section-title">Standard Output (Read-only scrollable)</h2>
+            </div>
+            <pre className="output-panel scrollable-container stdout-panel">
+              {execution.output.stdout || "(empty)"}
+            </pre>
+          </div>
+          
+          <div className="io-section">
+            <div className="panel-heading">
+              <h2 className="section-title">Standard Error (Read-only scrollable)</h2>
+            </div>
+            <pre className="output-panel scrollable-container stderr-panel">
+              {execution.output.stderr || "(empty)"}
+            </pre>
+          </div>
         </div>
       </section>
     </main>
