@@ -152,6 +152,38 @@ int main() {
     expect(result.output.stdout).toBe("30\n20\n");
   });
 
+  it("supports symmetric pointer addition with int + pointer", () => {
+    const source = `
+int main() {
+  int a[4] = {10, 20, 30, 40};
+  int *p = &a[1];
+  int *q = 2 + p;
+  cout << *q << "\\n";
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("40\n");
+  });
+
+  it("supports pointer compound assignment operators", () => {
+    const source = `
+int main() {
+  int a[5] = {1, 2, 3, 4, 5};
+  int *p = &a[0];
+  p += 3;
+  cout << *p << "\\n";
+  p -= 2;
+  cout << *p << "\\n";
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("4\n2\n");
+  });
+
   it("supports pointer increment and decrement", () => {
     const source = `
 int main() {
@@ -212,5 +244,55 @@ int main() {
     const result = compileAndRun(source);
     expect(result.status).toBe("error");
     expect(result.error?.message).toMatch(/pointer to array\/string element/);
+  });
+
+  it("allows +0 and -0 on scalar pointers", () => {
+    const source = `
+int main() {
+  int x = 10;
+  int *p = &x;
+  p = p + 0;
+  cout << *p << "\\n";
+  p = p - 0;
+  cout << *p << "\\n";
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("10\n10\n");
+  });
+
+  it("allows one-past pointer creation but fails on dereference", () => {
+    const source = `
+int main() {
+  int a[3] = {1, 2, 3};
+  int *p = &a[0];
+  int *end = p + 3;
+  cout << *end << "\\n";
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("error");
+    expect(result.error?.message).toMatch(/out of range/);
+  });
+
+  it("supports null pointer constants 0 and nullptr", () => {
+    const source = `
+int main() {
+  int *p = 0;
+  int *q = nullptr;
+  if (p == q) {
+    cout << "eq\\n";
+  }
+  cout << *p << "\\n";
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("error");
+    expect(result.output.stdout).toBe("eq\n");
+    expect(result.error?.message).toMatch(/dereference of null pointer/);
   });
 });

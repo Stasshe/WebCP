@@ -355,6 +355,9 @@ function validateExpr(
   const type = inferExprType(expr, context);
   if (type !== null && expected !== undefined) {
     const expectedType = normalizeExpectedType(expected);
+    if (expectedType.kind === "PointerType" && isNullPointerConstantExpr(expr)) {
+      return type;
+    }
     if (!isAssignable(type, expectedType)) {
       pushError(
         context,
@@ -424,7 +427,14 @@ function inferExprType(expr: ExprNode, context: ValidationContext): TypeNode | n
     }
     case "AssignExpr": {
       const targetType = inferLValueType(expr.target, context);
-      const valueType = validateExpr(expr.value, context, targetType ?? undefined);
+      let valueType: TypeNode | null;
+      if (expr.operator === "=") {
+        valueType = validateExpr(expr.value, context, targetType ?? undefined);
+      } else if (targetType !== null && isPointerType(targetType)) {
+        valueType = validateExpr(expr.value, context, "int");
+      } else {
+        valueType = validateExpr(expr.value, context);
+      }
       if (expr.operator !== "=") {
         if (targetType !== null && isPointerType(targetType)) {
           if (expr.operator !== "+=" && expr.operator !== "-=") {
@@ -986,6 +996,10 @@ function isBoolType(type: TypeNode): boolean {
 
 function isStringType(type: TypeNode): boolean {
   return isPrimitiveType(type) && type.name === "string";
+}
+
+function isNullPointerConstantExpr(expr: ExprNode): boolean {
+  return expr.kind === "Literal" && expr.valueType === "int" && expr.value === 0n;
 }
 
 function isNullPointerType(type: TypeNode): boolean {
