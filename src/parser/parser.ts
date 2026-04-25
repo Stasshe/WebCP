@@ -62,8 +62,7 @@ class Parser extends ExpressionParser {
           name: nameToken.text,
           params,
           body,
-          line: nameToken.line,
-          col: nameToken.col,
+          ...this.rangeFromNode(nameToken, body),
         });
         continue;
       }
@@ -91,6 +90,8 @@ class Parser extends ExpressionParser {
       functions,
       line: start.line,
       col: start.col,
+      endLine: this.previous().endLine,
+      endCol: this.previous().endCol,
     };
 
     return { ok: true, program };

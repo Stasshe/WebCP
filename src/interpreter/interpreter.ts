@@ -153,7 +153,7 @@ class Interpreter extends InterpreterEvaluator {
   }
 
   private executeStatement(stmt: StatementNode): void {
-    this.step(stmt.line, "statement");
+    this.step(stmt, "statement");
 
     switch (stmt.kind) {
       case "BlockStmt":
@@ -302,7 +302,7 @@ class Interpreter extends InterpreterEvaluator {
           }
           this.inputIndex += 1;
           this.assignFromInput(target, token, stmt.line);
-          this.step(target.line, "expression");
+          this.step(target, "expression");
         }
         return;
     }
@@ -311,6 +311,7 @@ class Interpreter extends InterpreterEvaluator {
   protected buildDebugInfo() {
     return buildDebugInfoView(
       this.currentLine,
+      this.currentExecutionRange,
       this.frameStack,
       this.scopeStack,
       this.globals,
@@ -340,6 +341,7 @@ export function buildDebugState(
     arrays: result.debugInfo.arrays,
     watchList: result.debugInfo.watchList,
     input: result.debugInfo.input,
+    executionRange: result.debugInfo.executionRange,
     stepCount,
     pauseReason,
   };

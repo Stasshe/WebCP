@@ -99,8 +99,10 @@ export function lex(source: string): LexResult {
     text: string,
     tokenLine: number,
     tokenCol: number,
+    endLine: number,
+    endCol: number,
   ): void => {
-    tokens.push({ kind, text, line: tokenLine, col: tokenCol });
+    tokens.push({ kind, text, line: tokenLine, col: tokenCol, endLine, endCol });
   };
 
   while (index < source.length) {
@@ -150,7 +152,7 @@ export function lex(source: string): LexResult {
       while (/[A-Za-z0-9_]/.test(peek())) {
         text += advance();
       }
-      addToken(KEYWORDS.has(text) ? "keyword" : "identifier", text, tokenLine, tokenCol);
+      addToken(KEYWORDS.has(text) ? "keyword" : "identifier", text, tokenLine, tokenCol, line, col);
       continue;
     }
 
@@ -176,7 +178,7 @@ export function lex(source: string): LexResult {
           text += advance();
         }
       }
-      addToken("number", text, tokenLine, tokenCol);
+      addToken("number", text, tokenLine, tokenCol, line, col);
       continue;
     }
 
@@ -216,7 +218,7 @@ export function lex(source: string): LexResult {
           message: "unterminated string literal",
         });
       } else {
-        addToken("string", value, tokenLine, tokenCol);
+        addToken("string", value, tokenLine, tokenCol, line, col);
       }
       continue;
     }
@@ -227,7 +229,7 @@ export function lex(source: string): LexResult {
       const tokenCol = col;
       advance();
       advance();
-      addToken("symbol", two, tokenLine, tokenCol);
+      addToken("symbol", two, tokenLine, tokenCol, line, col);
       continue;
     }
 
@@ -235,7 +237,7 @@ export function lex(source: string): LexResult {
       const tokenLine = line;
       const tokenCol = col;
       advance();
-      addToken("symbol", ch, tokenLine, tokenCol);
+      addToken("symbol", ch, tokenLine, tokenCol, line, col);
       continue;
     }
 
@@ -243,7 +245,7 @@ export function lex(source: string): LexResult {
     advance();
   }
 
-  tokens.push({ kind: "eof", text: "<eof>", line, col });
+  tokens.push({ kind: "eof", text: "<eof>", line, col, endLine: line, endCol: col });
 
   if (errors.length > 0) {
     return { ok: false, errors };

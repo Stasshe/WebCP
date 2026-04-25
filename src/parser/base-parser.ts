@@ -8,6 +8,7 @@ import type {
   ForInitNode,
   FunctionDeclNode,
   PrimitiveTypeNode,
+  SourceRange,
   StatementNode,
   Token,
   TypeNode,
@@ -58,8 +59,7 @@ export abstract class BaseParser {
         kind: "Param",
         type: paramType,
         name: nameToken.text,
-        line: nameToken.line,
-        col: nameToken.col,
+        ...this.rangeToPrevious(nameToken),
       });
 
       if (this.matchSymbol(")")) {
@@ -97,8 +97,7 @@ export abstract class BaseParser {
     return {
       kind: "BlockStmt",
       statements,
-      line: open.line,
-      col: open.col,
+      ...this.rangeToPrevious(open),
     };
   }
 
@@ -113,8 +112,7 @@ export abstract class BaseParser {
     return {
       kind: "BlockStmt",
       statements: [stmt],
-      line: stmt.line,
-      col: stmt.col,
+      ...this.rangeFromNode(stmt, stmt),
     };
   }
 
@@ -143,8 +141,7 @@ export abstract class BaseParser {
       const group: DeclGroupStmtNode = {
         kind: "DeclGroupStmt",
         declarations,
-        line: first.line,
-        col: first.col,
+        ...this.rangeFromNode(first, declarations[declarations.length - 1] as VarDeclNode | ArrayDeclNode | VectorDeclNode),
       };
       return group;
     }
@@ -196,8 +193,9 @@ export abstract class BaseParser {
         kind: "IfStmt",
         branches,
         elseBlock,
-        line: ifToken.line,
-        col: ifToken.col,
+        ...(elseBlock === null
+          ? this.rangeFromNode(ifToken, thenBlock)
+          : this.rangeFromNode(ifToken, elseBlock)),
       };
     }
 
@@ -218,8 +216,7 @@ export abstract class BaseParser {
         kind: "WhileStmt",
         condition,
         body,
-        line: whileToken.line,
-        col: whileToken.col,
+        ...this.rangeFromNode(whileToken, body),
       };
     }
 
@@ -250,8 +247,7 @@ export abstract class BaseParser {
         condition,
         update,
         body,
-        line: forToken.line,
-        col: forToken.col,
+        ...this.rangeFromNode(forToken, body),
       };
     }
 
@@ -264,8 +260,7 @@ export abstract class BaseParser {
       return {
         kind: "ReturnStmt",
         value,
-        line: returnToken.line,
-        col: returnToken.col,
+        ...this.rangeToPrevious(returnToken),
       };
     }
 
@@ -274,7 +269,7 @@ export abstract class BaseParser {
       if (!this.consumeSymbol(";", "expected ';' after break")) {
         return null;
       }
-      return { kind: "BreakStmt", line: breakToken.line, col: breakToken.col };
+      return { kind: "BreakStmt", ...this.rangeToPrevious(breakToken) };
     }
 
     if (this.matchKeyword("continue")) {
@@ -282,7 +277,7 @@ export abstract class BaseParser {
       if (!this.consumeSymbol(";", "expected ';' after continue")) {
         return null;
       }
-      return { kind: "ContinueStmt", line: continueToken.line, col: continueToken.col };
+      return { kind: "ContinueStmt", ...this.rangeToPrevious(continueToken) };
     }
 
     if (this.matchKeyword("cout")) {
@@ -294,7 +289,7 @@ export abstract class BaseParser {
       if (!this.consumeSymbol(";", "expected ';' after cout statement")) {
         return null;
       }
-      return { kind: "CoutStmt", values, line: token.line, col: token.col };
+      return { kind: "CoutStmt", values, ...this.rangeToPrevious(token) };
     }
 
     if (this.matchKeyword("cerr")) {
@@ -306,7 +301,7 @@ export abstract class BaseParser {
       if (!this.consumeSymbol(";", "expected ';' after cerr statement")) {
         return null;
       }
-      return { kind: "CerrStmt", values, line: token.line, col: token.col };
+      return { kind: "CerrStmt", values, ...this.rangeToPrevious(token) };
     }
 
     if (this.matchKeyword("cin")) {
@@ -326,7 +321,7 @@ export abstract class BaseParser {
       if (!this.consumeSymbol(";", "expected ';' after cin statement")) {
         return null;
       }
-      return { kind: "CinStmt", targets, line: token.line, col: token.col };
+      return { kind: "CinStmt", targets, ...this.rangeToPrevious(token) };
     }
 
     const expression = this.parseExpression();
@@ -336,8 +331,7 @@ export abstract class BaseParser {
     return {
       kind: "ExprStmt",
       expression,
-      line: expression.line,
-      col: expression.col,
+      ...this.rangeFromNode(expression, this.previous()),
     };
   }
 
@@ -385,8 +379,9 @@ export abstract class BaseParser {
       type,
       name: nameToken.text,
       initializer,
-      line: nameToken.line,
-      col: nameToken.col,
+      ...(initializer === null
+        ? this.rangeFrom(nameToken, nameToken)
+        : this.rangeFromNode(nameToken, initializer)),
     };
   }
 
@@ -490,8 +485,9 @@ export abstract class BaseParser {
       type,
       name: nameToken.text,
       initializer,
-      line: nameToken.line,
-      col: nameToken.col,
+      ...(initializer === null
+        ? this.rangeFrom(nameToken, nameToken)
+        : this.rangeFromNode(nameToken, initializer)),
     };
   }
 
@@ -542,8 +538,7 @@ export abstract class BaseParser {
       name: nameToken.text,
       size: BigInt(sizeToken.text),
       initializers,
-      line: nameToken.line,
-      col: nameToken.col,
+      ...this.rangeToPrevious(nameToken),
     };
   }
 
@@ -574,8 +569,7 @@ export abstract class BaseParser {
       type,
       name: nameToken.text,
       constructorArgs,
-      line: nameToken.line,
-      col: nameToken.col,
+      ...this.rangeToPrevious(nameToken),
     };
   }
 
@@ -729,6 +723,28 @@ export abstract class BaseParser {
 
   protected previous(): Token {
     return this.tokens[Math.max(0, this.index - 1)] as Token;
+  }
+
+  protected rangeFrom(start: Pick<Token, "line" | "col">, end: Pick<Token, "endLine" | "endCol">): SourceRange {
+    return {
+      line: start.line,
+      col: start.col,
+      endLine: end.endLine,
+      endCol: end.endCol,
+    };
+  }
+
+  protected rangeToPrevious(start: Pick<Token, "line" | "col">): SourceRange {
+    return this.rangeFrom(start, this.previous());
+  }
+
+  protected rangeFromNode(start: Pick<Token, "line" | "col">, end: Pick<SourceRange, "endLine" | "endCol">): SourceRange {
+    return {
+      line: start.line,
+      col: start.col,
+      endLine: end.endLine,
+      endCol: end.endCol,
+    };
   }
 
   protected peek(): Token {

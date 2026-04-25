@@ -33,10 +33,19 @@ export abstract class ExpressionParser extends BaseParser {
           text: "<eof>",
           line: 1,
           col: 1,
+          endLine: 1,
+          endCol: 1,
         };
       const segmentParser = new StreamOperandParser([
         ...segment,
-        { kind: "eof", text: "<eof>", line: eof.line, col: eof.col },
+        {
+          kind: "eof",
+          text: "<eof>",
+          line: eof.line,
+          col: eof.col,
+          endLine: eof.endLine,
+          endCol: eof.endCol,
+        },
       ]);
       const parsed = segmentParser.parseOperand();
       if (parsed === null) {
@@ -68,8 +77,7 @@ export abstract class ExpressionParser extends BaseParser {
         operator: opToken.text as AssignExprNode["operator"],
         target: left,
         value,
-        line: opToken.line,
-        col: opToken.col,
+        ...this.rangeFromNode(left, value),
       };
       return node;
     }
@@ -125,8 +133,7 @@ export abstract class ExpressionParser extends BaseParser {
         operator: op.text as UnaryExprNode["operator"],
         operand,
         isPostfix: false,
-        line: op.line,
-        col: op.col,
+        ...this.rangeFromNode(op, operand),
       };
       return node;
     }
@@ -143,8 +150,7 @@ export abstract class ExpressionParser extends BaseParser {
         kind: "Literal",
         valueType: "int",
         value: 0n,
-        line: token.line,
-        col: token.col,
+        ...this.rangeFrom(token, token),
       };
     }
 
@@ -174,8 +180,7 @@ export abstract class ExpressionParser extends BaseParser {
           kind: "CallExpr",
           callee: expr.name,
           args,
-          line: expr.line,
-          col: expr.col,
+          ...this.rangeToPrevious(expr),
         };
         continue;
       }
@@ -189,8 +194,7 @@ export abstract class ExpressionParser extends BaseParser {
           kind: "IndexExpr",
           target: expr,
           index,
-          line: expr.line,
-          col: expr.col,
+          ...this.rangeToPrevious(expr),
         };
         continue;
       }
@@ -220,8 +224,7 @@ export abstract class ExpressionParser extends BaseParser {
           receiver: expr,
           method: methodToken.text,
           args,
-          line: methodToken.line,
-          col: methodToken.col,
+          ...this.rangeToPrevious(expr),
         };
         continue;
       }
@@ -233,8 +236,7 @@ export abstract class ExpressionParser extends BaseParser {
           operator: op.text as UnaryExprNode["operator"],
           operand: expr,
           isPostfix: true,
-          line: op.line,
-          col: op.col,
+          ...this.rangeToPrevious(expr),
         };
         continue;
       }
@@ -258,16 +260,14 @@ export abstract class ExpressionParser extends BaseParser {
           kind: "Literal",
           valueType: "double",
           value: Number(t.text),
-          line: t.line,
-          col: t.col,
+          ...this.rangeFrom(t, t),
         };
       }
       return {
         kind: "Literal",
         valueType: "int",
         value: BigInt(t.text),
-        line: t.line,
-        col: t.col,
+        ...this.rangeFrom(t, t),
       };
     }
 
@@ -277,8 +277,7 @@ export abstract class ExpressionParser extends BaseParser {
         kind: "Literal",
         valueType: "string",
         value: t.text,
-        line: t.line,
-        col: t.col,
+        ...this.rangeFrom(t, t),
       };
     }
 
@@ -288,8 +287,7 @@ export abstract class ExpressionParser extends BaseParser {
         kind: "Literal",
         valueType: "bool",
         value: t.text === "true",
-        line: t.line,
-        col: t.col,
+        ...this.rangeFrom(t, t),
       };
     }
 
@@ -298,8 +296,7 @@ export abstract class ExpressionParser extends BaseParser {
       return {
         kind: "Identifier",
         name: "endl",
-        line: t.line,
-        col: t.col,
+        ...this.rangeFrom(t, t),
       };
     }
 
@@ -308,8 +305,7 @@ export abstract class ExpressionParser extends BaseParser {
       return {
         kind: "Identifier",
         name: id.text,
-        line: id.line,
-        col: id.col,
+        ...this.rangeFrom(id, id),
       };
     }
 
@@ -356,8 +352,7 @@ export abstract class ExpressionParser extends BaseParser {
       kind: "CallExpr",
       callee: "greater",
       args: [],
-      line: token.line,
-      col: token.col,
+      ...this.rangeToPrevious(token),
     };
   }
 
@@ -371,8 +366,7 @@ export abstract class ExpressionParser extends BaseParser {
         operator: op.text as BinaryExprNode["operator"],
         left: expr,
         right,
-        line: op.line,
-        col: op.col,
+        ...this.rangeFromNode(expr, right),
       };
     }
     return expr;

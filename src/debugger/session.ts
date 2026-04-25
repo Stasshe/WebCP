@@ -34,6 +34,7 @@ export class DebugSession {
         tokens: this.tokenizeInput(input),
         nextIndex: 0,
       },
+      executionRange: null,
       stepCount: 0,
       pauseReason: null,
     };
@@ -104,6 +105,7 @@ export class DebugSession {
           tokens: this.tokenizeInput(this.input),
           nextIndex: 0,
         },
+        executionRange: null,
         stepCount: 0,
         pauseReason: null,
       };

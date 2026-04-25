@@ -50,7 +50,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { DebugSession } from "@clientsidecpp/index";
-import type { DebugState, ScopeView } from "@clientsidecpp/types";
+import type { DebugExecutionRange, DebugState, ScopeView } from "@clientsidecpp/types";
 import { dracula } from "thememirror";
 
 const starterSource = `using namespace std;
@@ -98,6 +98,7 @@ const initialExecution: DebugState = {
       .filter((v) => v.length > 0),
     nextIndex: 0,
   },
+  executionRange: null,
   stepCount: 0,
   pauseReason: null,
 };
@@ -119,6 +120,7 @@ function cloneState(state: DebugState): DebugState {
       tokens: [...state.input.tokens],
       nextIndex: state.input.nextIndex,
     },
+    executionRange: state.executionRange ? { ...state.executionRange } : null,
   };
 }
 
@@ -208,15 +210,43 @@ function createBreakpointGutter(
   });
 }
 
-function createExecutionDecorations(lineFrom: number | null) {
+function getOffsetForPosition(view: EditorView, lineNumber: number, col: number) {
+  if (lineNumber < 1 || lineNumber > view.state.doc.lines) {
+    return null;
+  }
+  const line = view.state.doc.line(lineNumber);
+  const lineLength = line.to - line.from;
+  const clampedCol = Math.max(1, Math.min(col, lineLength + 1));
+  return line.from + clampedCol - 1;
+}
+
+function createExecutionDecorations(
+  lineFrom: number | null,
+  executionRange: DebugExecutionRange | null,
+  view?: EditorView
+) {
   if (lineFrom === null) {
     return EditorView.decorations.of(Decoration.none);
   }
 
+  const decorations = [
+    Decoration.line({ attributes: { class: "cm-execution-line" } }).range(lineFrom),
+  ];
+
+  if (executionRange !== null && view !== undefined) {
+    const from = getOffsetForPosition(view, executionRange.startLine, executionRange.startCol);
+    const to = getOffsetForPosition(view, executionRange.endLine, executionRange.endCol);
+    if (from !== null && to !== null && to > from) {
+      decorations.push(
+        Decoration.mark({
+          attributes: { class: `cm-execution-range cm-execution-range-${executionRange.level}` },
+        }).range(from, to)
+      );
+    }
+  }
+
   return EditorView.decorations.of(
-    Decoration.set([
-      Decoration.line({ attributes: { class: "cm-execution-line" } }).range(lineFrom),
-    ], true)
+    Decoration.set(decorations, true)
   );
 }
 
@@ -311,6 +341,15 @@ const editorTheme = EditorView.theme({
   },
   ".cm-execution-line": {
     backgroundColor: "rgba(79, 193, 255, 0.1)",
+  },
+  ".cm-execution-range": {
+    borderRadius: "2px",
+  },
+  ".cm-execution-range-1": {
+    backgroundColor: "rgba(79, 193, 255, 0.18)",
+  },
+  ".cm-execution-range-2": {
+    backgroundColor: "rgba(255, 206, 84, 0.26)",
   },
   ".cm-focused": {
     outline: "none",
@@ -481,7 +520,7 @@ export function Playground() {
         breakpointCompartment.of(createBreakpointGutter(breakpoints, onToggleBreakpoint)),
         executionCompartment.of([
           createExecutionGutter(null),
-          createExecutionDecorations(null),
+          createExecutionDecorations(null, null),
         ]),
         EditorView.updateListener.of((update) => {
           if (!update.docChanged) return;
@@ -536,14 +575,14 @@ export function Playground() {
     view.dispatch({
       effects: executionCompartment.reconfigure([
         createExecutionGutter(activeLine),
-        createExecutionDecorations(activeLineFrom),
+        createExecutionDecorations(activeLineFrom, execution.executionRange, view),
       ]),
     });
 
     if (activeLine !== null) {
       scrollLineIntoView(view, activeLine);
     }
-  }, [execution.currentLine, execution.status]);
+  }, [execution.currentLine, execution.executionRange, execution.status]);
 
   useEffect(() => {
     const view = editorViewRef.current;

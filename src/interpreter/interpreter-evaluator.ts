@@ -4,7 +4,7 @@ import { InterpreterRuntime } from "./interpreter-runtime";
 
 export abstract class InterpreterEvaluator extends InterpreterRuntime {
   protected evaluateExpr(expr: ExprNode): RuntimeValue {
-    this.step(expr.line, "expression");
+    this.step(expr, "expression");
 
     switch (expr.kind) {
       case "Literal":

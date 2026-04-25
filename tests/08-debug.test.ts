@@ -141,6 +141,13 @@ int main() {
     const cinStatement = session.stepInto();
     expect(cinStatement.currentLine).toBe(6);
     expect(cinStatement.input).toEqual({ tokens: ["10", "20", "30"], nextIndex: 1 });
+    expect(cinStatement.executionRange).toEqual({
+      startLine: 6,
+      startCol: 10,
+      endLine: 6,
+      endCol: 11,
+      level: 2,
+    });
     expect(cinStatement.localVars[0]?.vars).toEqual([
       { name: "a", kind: "int", value: "10" },
       { name: "b", kind: "int", value: "0" },
@@ -150,6 +157,13 @@ int main() {
     const afterFirstTarget = session.stepInto();
     expect(afterFirstTarget.currentLine).toBe(6);
     expect(afterFirstTarget.input).toEqual({ tokens: ["10", "20", "30"], nextIndex: 2 });
+    expect(afterFirstTarget.executionRange).toEqual({
+      startLine: 6,
+      startCol: 15,
+      endLine: 6,
+      endCol: 16,
+      level: 2,
+    });
     expect(afterFirstTarget.localVars[0]?.vars).toEqual([
       { name: "a", kind: "int", value: "10" },
       { name: "b", kind: "int", value: "20" },
@@ -159,6 +173,13 @@ int main() {
     const afterSecondTarget = session.stepInto();
     expect(afterSecondTarget.currentLine).toBe(6);
     expect(afterSecondTarget.input).toEqual({ tokens: ["10", "20", "30"], nextIndex: 3 });
+    expect(afterSecondTarget.executionRange).toEqual({
+      startLine: 6,
+      startCol: 20,
+      endLine: 6,
+      endCol: 21,
+      level: 2,
+    });
     expect(afterSecondTarget.localVars[0]?.vars).toEqual([
       { name: "a", kind: "int", value: "10" },
       { name: "b", kind: "int", value: "20" },

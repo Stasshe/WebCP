@@ -67,6 +67,7 @@ export function compileAndRun(source: string, input = "", filename = "<input>"):
             .filter((v) => v.length > 0),
           nextIndex: 0,
         },
+        executionRange: null,
       },
       stepCount: 0,
     };

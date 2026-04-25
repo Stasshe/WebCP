@@ -22,7 +22,12 @@ export type SourceLocation = {
   col: number;
 };
 
-export type NodeBase = SourceLocation;
+export type SourceRange = SourceLocation & {
+  endLine: number;
+  endCol: number;
+};
+
+export type NodeBase = SourceRange;
 
 export type ProgramNode = NodeBase & {
   kind: "Program";
@@ -237,7 +242,7 @@ export type LiteralExprNode = NodeBase & {
 
 export type TokenKind = "identifier" | "keyword" | "number" | "string" | "symbol" | "eof";
 
-export type Token = SourceLocation & {
+export type Token = SourceRange & {
   kind: TokenKind;
   text: string;
 };
@@ -289,6 +294,14 @@ export type InputStateView = {
   nextIndex: number;
 };
 
+export type DebugExecutionRange = {
+  startLine: number;
+  startCol: number;
+  endLine: number;
+  endCol: number;
+  level: number;
+};
+
 export type DebugInfo = {
   currentLine: number;
   callStack: FrameView[];
@@ -297,6 +310,7 @@ export type DebugInfo = {
   arrays: ArrayView[];
   watchList: WatchView[];
   input: InputStateView;
+  executionRange: DebugExecutionRange | null;
 };
 
 export type RunStatus = "done" | "paused" | "error";
@@ -325,6 +339,7 @@ export type DebugState = {
   arrays: ArrayView[];
   watchList: WatchView[];
   input: InputStateView;
+  executionRange: DebugExecutionRange | null;
   stepCount: number;
   pauseReason: "step" | "breakpoint" | null;
 };

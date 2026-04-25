@@ -5,6 +5,7 @@ import type {
   ArrayDeclNode,
   ArrayView,
   AssignTargetNode,
+  DebugExecutionRange,
   DebugInfo,
   DebugValueView,
   ExprNode,
@@ -13,6 +14,7 @@ import type {
   ProgramNode,
   RuntimeErrorInfo,
   ScopeView,
+  SourceRange,
   TypeNode,
   VectorDeclNode,
 } from "../types";
@@ -31,6 +33,7 @@ export type InterpreterStepInfo = {
   line: number;
   callStack: FrameView[];
   kind: "statement" | "expression";
+  executionRange: DebugExecutionRange | null;
   stepCount: number;
   debugInfo: DebugInfo;
 };
@@ -79,6 +82,8 @@ export abstract class InterpreterRuntime {
   protected readonly scopeStack: Scope[] = [];
 
   protected readonly frameStack: FrameView[] = [];
+
+  protected currentExecutionRange: DebugExecutionRange | null = null;
 
   protected stepCount = 0;
 
@@ -429,17 +434,25 @@ export abstract class InterpreterRuntime {
     return scope;
   }
 
-  protected step(line: number, kind: "statement" | "expression"): void {
+  protected step(location: SourceRange, kind: "statement" | "expression", level = kind === "statement" ? 1 : 2): void {
     this.stepCount += 1;
-    this.currentLine = line;
+    this.currentLine = location.line;
+    this.currentExecutionRange = {
+      startLine: location.line,
+      startCol: location.col,
+      endLine: location.endLine,
+      endCol: location.endCol,
+      level,
+    };
     const top = this.frameStack[this.frameStack.length - 1];
     if (top !== undefined) {
-      top.line = line;
+      top.line = location.line;
     }
     const debugInfo = this.buildDebugInfo();
     const action = this.options.onStep?.({
-      line,
+      line: location.line,
       kind,
+      executionRange: this.currentExecutionRange,
       stepCount: this.stepCount,
       callStack: this.frameStack.map((frame) => ({
         functionName: frame.functionName,
@@ -563,6 +576,7 @@ export function toRuntimeError(error: RuntimeTrap): RuntimeErrorInfo {
 
 export function buildDebugInfoView(
   currentLine: number,
+  executionRange: DebugExecutionRange | null,
   frameStack: FrameView[],
   scopeStack: Scope[],
   globals: Scope,
@@ -574,6 +588,7 @@ export function buildDebugInfoView(
 ): DebugInfo {
   return {
     currentLine,
+    executionRange,
     callStack: frameStack.map((frame) => ({
       functionName: frame.functionName,
       line: frame.line,
