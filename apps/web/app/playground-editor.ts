@@ -327,11 +327,21 @@ export const editorTheme = EditorView.theme({
   ".cm-content": {
     padding: "0 0 24px",
   },
-  ".cm-selectionBackground, ::selection": {
-    backgroundColor: "rgba(190, 255, 110, 0.34) !important",
+  ".cm-selectionBackground": {
+    backgroundColor: "rgba(86, 156, 214, 0.28) !important",
+  },
+  ".cm-focused .cm-selectionBackground": {
+    backgroundColor: "rgba(86, 156, 214, 0.34) !important",
+  },
+  ".cm-content ::selection": {
+    backgroundColor: "rgba(86, 156, 214, 0.34)",
   },
   ".cm-selectionMatch-main": {
-    backgroundColor: "rgba(190, 255, 110, 0.22)",
+    backgroundColor: "rgba(220, 220, 170, 0.12)",
+    outline: "1px solid rgba(220, 220, 170, 0.18)",
+  },
+  ".cm-selectionMatch": {
+    backgroundColor: "rgba(220, 220, 170, 0.08)",
   },
   ".cm-line": {
     padding: "0 12px",

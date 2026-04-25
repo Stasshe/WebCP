@@ -179,14 +179,14 @@ export function Playground() {
 
   if (!hasRestored) {
     return (
-      <div className="playground-loading">
+      <div className="grid h-screen place-items-center text-[var(--text-dim)] tracking-[0.04em] uppercase">
         <span>Loading...</span>
       </div>
     );
   }
 
   return (
-    <div className="ide">
+    <div className="grid h-screen grid-cols-1 grid-rows-[minmax(280px,38vh)_1fr] overflow-hidden lg:grid-cols-[minmax(320px,4fr)_minmax(0,6fr)] lg:grid-rows-[100vh]">
       <DebugSidebar
         execution={execution}
         breakpoints={breakpoints}
@@ -202,9 +202,9 @@ export function Playground() {
         onStepOut={handleStepOut}
       />
 
-      <div className="right">
-        <div className="editor-area">
-          <div ref={editorHostRef} className="code-editor" />
+      <div className="grid min-h-0 grid-rows-[1fr_180px] overflow-hidden bg-[var(--bg)]">
+        <div className="min-h-0 overflow-hidden border-b border-[var(--border)]">
+          <div ref={editorHostRef} className="h-full min-h-0" />
         </div>
 
         <IOPanels
