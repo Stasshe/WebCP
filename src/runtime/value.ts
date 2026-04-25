@@ -1,4 +1,14 @@
-import type { PrimitiveTypeNode, TypeNode, VectorTypeNode } from "../types";
+import type {
+  PrimitiveTypeNode,
+  ReferenceTypeNode,
+  TypeNode,
+  VectorTypeNode,
+} from "../types";
+
+export type RuntimeLocation =
+  | { kind: "binding"; scope: Map<string, RuntimeValue>; name: string; type: TypeNode }
+  | { kind: "array"; ref: number; index: number; type: TypeNode }
+  | { kind: "string"; parent: RuntimeLocation; index: number };
 
 export type RuntimeValue =
   | { kind: "int"; value: bigint }
@@ -6,8 +16,10 @@ export type RuntimeValue =
   | { kind: "bool"; value: boolean }
   | { kind: "string"; value: string }
   | { kind: "array"; ref: number; type: VectorTypeNode | Exclude<TypeNode, PrimitiveTypeNode> }
+  | { kind: "pointer"; pointeeType: TypeNode; target: RuntimeLocation | null }
+  | { kind: "reference"; type: ReferenceTypeNode; target: RuntimeLocation }
   | { kind: "void" }
-  | { kind: "uninitialized"; expected: "int" | "double" | "bool" | "string" };
+  | { kind: "uninitialized"; expectedType: TypeNode };
 
 export function defaultValueForType(type: PrimitiveTypeNode): RuntimeValue {
   switch (type.name) {
@@ -26,16 +38,7 @@ export function defaultValueForType(type: PrimitiveTypeNode): RuntimeValue {
 }
 
 export function uninitializedForType(type: PrimitiveTypeNode): RuntimeValue {
-  if (type.name === "void") {
-    return { kind: "void" };
-  }
-  if (type.name === "long long") {
-    return { kind: "uninitialized", expected: "int" };
-  }
-  if (type.name === "double") {
-    return { kind: "uninitialized", expected: "double" };
-  }
-  return { kind: "uninitialized", expected: type.name };
+  return { kind: "uninitialized", expectedType: type };
 }
 
 export function stringifyValue(value: RuntimeValue): string {
@@ -54,6 +57,10 @@ export function stringifyValue(value: RuntimeValue): string {
       return "";
     case "array":
       return "<array>";
+    case "pointer":
+      return value.target === null ? "nullptr" : "<pointer>";
+    case "reference":
+      return "<reference>";
     case "uninitialized":
       return "<uninitialized>";
   }

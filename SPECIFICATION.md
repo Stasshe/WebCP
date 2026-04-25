@@ -17,16 +17,17 @@
 
 | 機能 | 備考 |
 |---|---|
-| ポインタ（`*`, `&` を型修飾子として使用） | `int *p` 等 |
 | 動的メモリ（`malloc`, `new`, `free`, `delete`） | |
 | 構造体・クラス（`struct`, `class`） | |
 | テンプレート（`template<>`） | |
 | 関数ポインタ | |
 | 名前空間（`namespace`） | `using namespace std;` のみ特別扱いで許可 |
 | プリプロセッサ | `#include <bits/stdc++.h>` と `#define` のみ対応 |
-| キャスト構文（`(int)x`, `static_cast<>` 等） | |
+| C / C++ キャスト構文（`(int)x`, `static_cast<>` 等） | |
 | 三項演算子（`? :`） | 将来対応候補 |
 | 多重戻り値・タプル | |
+| ポインタ演算 | `p + 1`, `p - q`, `++p` などは非対応 |
+| 参照戻り値 | 参照変数・参照引数・range-for 束縛のみ対応 |
 
 ---
 
@@ -44,18 +45,41 @@
 - `int` と `long long` は同一の内部型。明示的な型名の違いはコンパイル時に許容する
 - `bool` と `int` の間の暗黙変換は行わない。`true` を `int` として使う場合は `(int)true` の代わりに `1` と書く（キャスト非対応のため）
 - `string` に対して使える演算は `+`（連結）、`==`、`!=`、`<`、`<=`、`>`、`>=`（辞書順比較）のみ
+- `string` は `s[i]` で 1 文字の `string` として読み書きできる
 
-### 3.2 配列型
+### 3.2 ポインタ型と参照型
+
+```cpp
+int x = 3;
+int *p = &x;
+int &r = x;
+*p = 5;
+r = 7;
+```
+
+- `T*` と `T&` をサポートする
+- 対応するのは束縛、アドレス取得、参照外し、`==` / `!=` 比較、関数引数、range-for 参照束縛
+- `&expr` は lvalue に対してのみ使用可能
+- `*ptr` は pointer に対してのみ使用可能。null ポインタ参照は実行時エラー
+- `0` と `nullptr` は null pointer constant として扱う
+- `T&` の変数は宣言時初期化が必須
+- `vector<T&>` や `T& a[10]` のような「要素型が参照」のコンテナは非対応
+- 関数の戻り値として pointer は許可、reference は非対応
+
+### 3.3 配列型
 
 #### 固定長配列
 
 ```cpp
 int a[1000];          // ゼロ初期化
 int b[10] = {1, 2};  // 部分初期化（残りはゼロ）
+int c[2][3];         // 多次元固定長配列
 ```
 
 - サイズは整数リテラルのみ（定数変数は将来対応）
 - 宣言スコープに応じてローカル／グローバルどちらでも使用可能
+- 多次元配列は `a[i][j]` のように通常の添字でアクセスできる
+- 初期化子は平坦化した `{1, 2, 3, ...}` 形式のみ対応する
 
 #### 動的配列（`vector`）
 
@@ -64,6 +88,7 @@ vector<int> v;            // 空
 vector<int> v(n);         // サイズ n、ゼロ初期化
 vector<int> v(n, x);      // サイズ n、x で初期化
 vector<string> vs;        // string の vector も可
+vector<vector<int>> g;    // ネスト vector も可
 ```
 
 対応メソッド：
@@ -79,7 +104,7 @@ vector<string> vs;        // string の vector も可
 | `v[i]` | 添字アクセス（範囲外は実行時エラー） |
 | `v.resize(n)` | リサイズ（縮小時は切り捨て、拡大時はゼロ埋め） |
 
-### 3.3 配列・vector の関数渡し
+### 3.4 配列・vector の関数渡し
 
 - 構文上は値渡しとして記述する
 - 内部実装は参照渡し（JS 配列の参照セマンティクスをそのまま利用）
@@ -93,12 +118,15 @@ void fill(vector<int> v, int x) {
 }
 ```
 
-### 3.4 2次元配列（将来対応）
+### 3.5 `auto`
 
 ```cpp
-int dp[1001][1001];       // 将来的に対応予定
-vector<vector<int>> g;    // 同上
+for (auto& x : v) { ... }
 ```
+
+- 現在は range-based for の束縛変数でのみ `auto` をサポートする
+- `auto` は要素の値コピー、`auto&` は各要素への参照束縛になる
+- 一般の変数宣言（`auto x = ...;`）や関数戻り値推論は非対応
 
 ---
 
@@ -114,6 +142,8 @@ bool flag = true;
 string s = "hello";
 int x = 1, y = 2;
 int a[2] = {1, 2}, b = 3;
+int *p = &x;
+int &r = y;
 ```
 
 ### 4.2 グローバル変数
@@ -189,6 +219,7 @@ int main() {
 | `--i` | 前置 | デクリメント後に評価 |
 
 - `int` 型変数のみに使用可能
+- pointer に対する `++` / `--` は非対応
 
 ### 5.6 演算子の優先順位
 
@@ -196,7 +227,7 @@ C++ の標準的な優先順位に準拠する。高い順に：
 
 ```
 1. 後置: i++, i--, v[i], f()
-2. 前置: ++i, --i, !, ~, -(単項)
+2. 前置: ++i, --i, !, ~, -(単項), *ptr, &var
 3. 乗除: * / %
 4. 加減: + -
 5. シフト: << >>
@@ -238,18 +269,30 @@ for (int i = n - 1; i >= 0; i--) { ... }
 for (;;) { ... }   // 無限ループ
 ```
 
-### 6.3 `while`
+### 6.3 range-based `for`
+
+```cpp
+for (auto x : v) { ... }
+for (auto& x : v) { ... }
+for (int x : a) { ... }
+```
+
+- 走査対象は固定長配列・`vector`・`string`
+- `auto&` や `T&` を使うと、ループ変数への代入が元要素に反映される
+- `string` を走査する場合、要素は長さ 1 の `string`
+
+### 6.4 `while`
 
 ```cpp
 while (expr) block
 ```
 
-### 6.4 `break` / `continue`
+### 6.5 `break` / `continue`
 
 - `for`、`while` ループ内でのみ使用可能
 - ループ外での使用はコンパイルエラー
 
-### 6.5 `return`
+### 6.6 `return`
 
 ```cpp
 return;           // void 関数
@@ -257,7 +300,7 @@ return expr;      // 非 void 関数
 ```
 
 - `void` 関数で `return expr;` はコンパイルエラー
-- 非 `void` 関数の末尾到達（`return` なし）は実行時警告
+- 非 `void` 関数の末尾到達時は型ごとのデフォルト値を返す（`int` は `0`、pointer は null など）
 
 ---
 
@@ -269,15 +312,18 @@ return expr;      // 非 void 関数
 return_type name(param_list) block
 ```
 
-- `return_type`：`int`、`long long`、`bool`、`string`、`void`
+- `return_type`：`int`、`long long`、`bool`、`string`、`void`、`vector<T>`、`T*`
 - `param_list`：カンマ区切りの `type name` のリスト（空も可）
-- 引数は値渡し（配列・vector を除く。§3.3 参照）
+- 引数は値渡し（配列・vector を除く。§3.4 参照）
+- 参照引数（`T&`）をサポートする。呼び出し側は lvalue を渡す必要がある
 - 関数のオーバーロードは非対応
 
 ```cpp
 void dfs(int v, int parent) { ... }
 int gcd(int a, int b) { ... }
 bool isPrime(int n) { ... }
+void chmax(int& a, int b) { if (a < b) a = b; }
+int *pick(int *p) { return p; }
 ```
 
 ### 7.2 呼び出し
@@ -318,9 +364,10 @@ cin >> s;          // string（空白区切りで1トークン）
 ```
 
 - `int`、`long long`、`bool`、`string` 型変数への入力に対応
-- 配列要素への直接入力も可：`cin >> a[i]`
+- 配列要素・vector 要素・`string` 添字への直接入力も可：`cin >> a[i]`, `cin >> v[i]`, `cin >> s[i]`
 - `using namespace std;` は書いてもよい。意味的には無視される
 - `cin` / `cout` / `cerr` / `endl` は `using namespace std;` がなくても直接使える
+- `ios::sync_with_stdio(false);`、`ios_base::sync_with_stdio(false);`、`cin.tie(nullptr);` は競プロ互換の no-op として受理する
 
 ### 8.2 `cout`
 
@@ -382,6 +429,8 @@ cerr << "debug: " << x << "\n";
 |---|---|
 | 未宣言識別子 | `error: 'x' was not declared in this scope` |
 | 型の不一致 | `error: cannot convert 'int' to 'bool'` |
+| reference 初期化漏れ | `error: reference variable must be initialized` |
+| reference への非 lvalue 束縛 | `error: reference argument must be an lvalue` |
 | 引数数の不一致 | `error: too few arguments to function 'f'` |
 | 引数数過多 | `error: too many arguments to function 'f'` |
 | void 関数からの値返却 | `error: return-statement with a value, in function returning 'void'` |
@@ -406,6 +455,7 @@ Runtime Error: <message>
 |---|---|
 | ゼロ除算 | `Runtime Error: division by zero` |
 | 配列範囲外アクセス | `Runtime Error: index 10 out of range for array of size 5` |
+| null ポインタ参照 | `Runtime Error: dereference of null pointer` |
 | 未初期化変数の読み取り | `Runtime Error: use of uninitialized variable 'x'` |
 | スタックオーバーフロー | `Runtime Error: stack overflow (recursion depth exceeded 10000)` |
 | ステップ上限超過（無限ループ） | `Runtime Error: execution step limit exceeded (possible infinite loop)` |
@@ -416,7 +466,7 @@ Runtime Error: <message>
 
 | 種別 | メッセージ例 |
 |---|---|
-| 非 void 関数の末尾到達 | `warning: control reaches end of non-void function 'f'` |
+| 現状なし | 実装は非 `void` 関数の末尾到達を警告ではなくデフォルト値返却として扱う |
 
 ---
 
@@ -429,6 +479,8 @@ type Value =
   | { kind: "int";    value: bigint }
   | { kind: "bool";   value: boolean }
   | { kind: "string"; value: string }
+  | { kind: "pointer"; pointeeType: TypeNode; target: RuntimeLocation | null }
+  | { kind: "reference"; type: ReferenceTypeNode; target: RuntimeLocation }
   | { kind: "array";  ref: ArrayId }
   | { kind: "uninitialized" }
 
@@ -454,8 +506,9 @@ type GlobalStore = {
 }
 ```
 
-- 配列の実体はすべて `GlobalStore.arrays` に格納し、変数は `ArrayId`（内部ID）を保持する
+- 配列・vector の実体は `GlobalStore.arrays` に格納し、変数は `ArrayId`（内部ID）を保持する
 - 関数に配列を渡す際は `ArrayId` をそのまま渡すため、参照セマンティクスが実現される
+- pointer / reference は `RuntimeLocation` を保持し、デバッガからも追跡できるようにする
 
 ### 11.3 変数解決順序
 
@@ -529,13 +582,14 @@ program       = { global_decl } { function } ;
 global_decl   = var_decl | array_decl | vector_decl ;
 
 (* 関数 *)
-function      = type ident "(" param_list ")" block ;
+function      = type declarator "(" param_list ")" block ;
 param_list    = [ param { "," param } ] ;
-param         = type ident [ "[" "]" ] ;   (* 配列引数は [] を付ける *)
+param         = type declarator ;
 
 (* 型 *)
 type          = "int" | "long long" | "bool" | "string" | "void"
               | "vector" "<" type ">" ;
+declarator    = { "*" } [ "&" ] ident { "[" [ int_lit ] "]" } ;
 
 (* 文 *)
 block         = "{" { statement } "}" ;
@@ -546,6 +600,7 @@ statement     = var_decl
               | io_stmt
               | if_stmt
               | for_stmt
+              | range_for_stmt
               | while_stmt
               | return_stmt
               | break_stmt
@@ -564,6 +619,8 @@ if_stmt       = "if" "(" expr ")" stmt_or_block
                 [ "else" stmt_or_block ] ;
 
 for_stmt      = "for" "(" for_init expr ";" for_update ")" stmt_or_block ;
+range_for_stmt = "for" "(" range_binding ":" expr ")" stmt_or_block ;
+range_binding = ( type | "auto" ) [ "&" ] ident ;
 for_init      = var_decl | assign_expr ";" | ";" ;
 for_update    = assign_expr | postfix_expr | ε ;
 
@@ -594,7 +651,7 @@ relational    = shift { ( "<" | "<=" | ">" | ">=" ) shift } ;
 shift         = additive { ( "<<" | ">>" ) additive } ;
 additive      = multiplicative { ( "+" | "-" ) multiplicative } ;
 multiplicative = unary { ( "*" | "/" | "%" ) unary } ;
-unary         = ( "!" | "-" | "~" | "++" | "--" ) unary
+unary         = ( "!" | "-" | "~" | "++" | "--" | "*" | "&" ) unary
               | postfix_expr ;
 postfix_expr  = primary { postfix_op } ;
 postfix_op    = "++" | "--"
@@ -603,7 +660,7 @@ postfix_op    = "++" | "--"
               | "." method_call ;
 primary       = int_lit | bool_lit | string_lit | ident | "(" expr ")" ;
 
-lvalue        = ident | ident "[" expr "]" ;
+lvalue        = ident | ident "[" expr "]" | "*" unary ;
 arg_list      = [ expr { "," expr } ] ;
 expr_list     = expr { "," expr } ;
 method_call   = ident "(" arg_list ")" | ident ;

@@ -1,4 +1,5 @@
 import type { CompileResult, GlobalDeclNode, ProgramNode, Token } from "../types";
+import { pointerType, referenceType } from "../types";
 import { tokensStart } from "./base-parser";
 import { ExpressionParser } from "./expression-parser";
 
@@ -45,19 +46,35 @@ class Parser extends ExpressionParser {
         continue;
       }
 
-      const type = this.parseType();
+      const type = this.parseTypeSpecifier();
       if (type === null) {
         this.synchronizeTopLevel();
         continue;
       }
 
-      const nameToken = this.consumeIdentifier("expected identifier");
-      if (nameToken === null) {
+      let functionType = type;
+      let cursor = this.index;
+      while (this.tokens[cursor]?.kind === "symbol" && this.tokens[cursor]?.text === "*") {
+        functionType = pointerType(functionType);
+        cursor += 1;
+      }
+      if (this.tokens[cursor]?.kind === "symbol" && this.tokens[cursor]?.text === "&") {
+        functionType = referenceType(functionType);
+        cursor += 1;
+      }
+
+      const functionNameToken = this.tokens[cursor];
+      if (functionNameToken?.kind !== "identifier") {
+        this.errorAtCurrent("expected identifier");
         this.synchronizeTopLevel();
         continue;
       }
-
-      if (this.matchSymbol("(")) {
+      const afterName = this.tokens[cursor + 1];
+      if (afterName?.kind === "symbol" && afterName.text === "(") {
+        this.index = cursor;
+        this.advance();
+        const nameToken = this.previous();
+        this.advance();
         const params = this.parseParams();
         const body = this.parseRequiredBlock("expected block after function signature");
         if (body === null) {
@@ -66,7 +83,7 @@ class Parser extends ExpressionParser {
         }
         functions.push({
           kind: "FunctionDecl",
-          returnType: type,
+          returnType: functionType,
           name: nameToken.text,
           params,
           body,
@@ -75,7 +92,7 @@ class Parser extends ExpressionParser {
         continue;
       }
 
-      const declarations = this.parseDeclarationList(type, nameToken);
+      const declarations = this.parseDeclarationList(type);
       if (declarations !== null) {
         globals.push(...declarations);
       } else {

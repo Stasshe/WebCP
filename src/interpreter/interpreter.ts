@@ -1,16 +1,19 @@
 import { BreakSignal, ContinueSignal, ReturnSignal, RuntimeTrap } from "../runtime/errors";
 import type { RuntimeValue } from "../runtime/value";
-import { defaultValueForType, stringifyValue, uninitializedForType } from "../runtime/value";
+import { stringifyValue, uninitializedForType } from "../runtime/value";
 import type {
   DebugInfo,
   DebugState,
+  ExprNode,
   FunctionDeclNode,
   ProgramNode,
+  RangeForStmtNode,
   RunResult,
   RuntimeErrorInfo,
   StatementNode,
 } from "../types";
 import { InterpreterEvaluator } from "./interpreter-evaluator";
+import type { RuntimeArgument } from "./interpreter-evaluator";
 import {
   buildDebugInfoView,
   type InterpreterOptions,
@@ -82,7 +85,7 @@ class Interpreter extends InterpreterEvaluator {
     }
   }
 
-  protected invokeFunction(fn: FunctionDeclNode, args: RuntimeValue[]): RuntimeValue {
+  protected invokeFunction(fn: FunctionDeclNode, args: RuntimeArgument[]): RuntimeValue {
     const previousFunction = this.currentFunction;
     const previousLine = this.currentLine;
     this.currentFunction = fn.name;
@@ -101,7 +104,17 @@ class Interpreter extends InterpreterEvaluator {
       if (param === undefined || arg === undefined) {
         this.fail(`too few arguments to function '${fn.name}'`, fn.line);
       }
-      this.define(param.name, this.assertType(param.type, arg, param.line));
+      if (param.type.kind === "ReferenceType") {
+        if (arg.kind !== "reference") {
+          this.fail("reference argument must be an lvalue", param.line);
+        }
+        this.define(param.name, { kind: "reference", type: param.type, target: arg.target });
+        continue;
+      }
+      if (arg.kind !== "value") {
+        this.fail("invalid argument binding", param.line);
+      }
+      this.define(param.name, this.assertType(param.type, arg.value, param.line));
     }
 
     try {
@@ -111,7 +124,7 @@ class Interpreter extends InterpreterEvaluator {
       if (this.isVoidType(fn.returnType)) {
         return { kind: "void" };
       }
-      return uninitializedForType(this.expectPrimitiveType(fn.returnType, fn.line));
+      return this.defaultValueForDeclaredType(fn.returnType, false, fn.line);
     } catch (signal) {
       if (signal instanceof ReturnSignal) {
         this.captureFinalDebugInfo(fn.name);
@@ -135,8 +148,8 @@ class Interpreter extends InterpreterEvaluator {
     if (decl.kind === "VarDecl") {
       const value =
         decl.initializer === null
-          ? defaultValueForType(this.expectPrimitiveType(decl.type, decl.line))
-          : this.evaluateExpr(decl.initializer);
+          ? this.defaultValueForDeclaredType(decl.type, true, decl.line)
+          : this.initializeDeclaredValue(decl.type, decl.initializer, decl.line);
       this.globals.set(decl.name, this.assertType(decl.type, value, decl.line));
       return;
     }
@@ -179,8 +192,8 @@ class Interpreter extends InterpreterEvaluator {
       case "VarDecl": {
         const value =
           stmt.initializer === null
-            ? uninitializedForType(this.expectPrimitiveType(stmt.type, stmt.line))
-            : this.assertType(stmt.type, this.evaluateExpr(stmt.initializer), stmt.line);
+            ? this.defaultValueForDeclaredType(stmt.type, false, stmt.line)
+            : this.initializeDeclaredValue(stmt.type, stmt.initializer, stmt.line);
         this.define(stmt.name, value);
         return;
       }
@@ -189,6 +202,9 @@ class Interpreter extends InterpreterEvaluator {
         return;
       case "VectorDecl":
         this.defineVectorDecl(stmt, this.currentScope());
+        return;
+      case "RangeForStmt":
+        this.executeRangeFor(stmt);
         return;
       case "IfStmt":
         for (const branch of stmt.branches) {
@@ -224,23 +240,15 @@ class Interpreter extends InterpreterEvaluator {
             const initDecl = stmt.init.value;
             const value =
               initDecl.initializer === null
-                ? uninitializedForType(this.expectPrimitiveType(initDecl.type, initDecl.line))
-                : this.assertType(
-                    initDecl.type,
-                    this.evaluateExpr(initDecl.initializer),
-                    initDecl.line,
-                  );
+                ? this.defaultValueForDeclaredType(initDecl.type, false, initDecl.line)
+                : this.initializeDeclaredValue(initDecl.type, initDecl.initializer, initDecl.line);
             this.define(initDecl.name, value);
           } else if (stmt.init.kind === "declGroup") {
             for (const initDecl of stmt.init.value) {
               const value =
                 initDecl.initializer === null
-                  ? uninitializedForType(this.expectPrimitiveType(initDecl.type, initDecl.line))
-                  : this.assertType(
-                      initDecl.type,
-                      this.evaluateExpr(initDecl.initializer),
-                      initDecl.line,
-                    );
+                  ? this.defaultValueForDeclaredType(initDecl.type, false, initDecl.line)
+                  : this.initializeDeclaredValue(initDecl.type, initDecl.initializer, initDecl.line);
               this.define(initDecl.name, value);
             }
           } else if (stmt.init.kind === "expr") {
@@ -340,6 +348,109 @@ class Interpreter extends InterpreterEvaluator {
       return;
     }
     this.finalDebugInfo = this.buildDebugInfo();
+  }
+
+  private executeRangeFor(stmt: RangeForStmtNode): void {
+    const iterable = this.getRangeForIterable(stmt.source, stmt.line);
+    for (const reference of iterable) {
+      this.scopeStack.push(new Map());
+      try {
+        if (stmt.itemByReference) {
+          this.define(stmt.itemName, reference);
+        } else {
+          const value = this.readLocation(reference.target, stmt.line);
+          this.define(
+            stmt.itemName,
+            stmt.itemType === null ? value : this.assertType(stmt.itemType, value, stmt.line),
+          );
+        }
+        try {
+          this.executeBlock(stmt.body, false);
+        } catch (signal) {
+          if (signal instanceof ContinueSignal) {
+            continue;
+          }
+          if (signal instanceof BreakSignal) {
+            break;
+          }
+          throw signal;
+        }
+      } finally {
+        this.scopeStack.pop();
+      }
+    }
+  }
+
+  private getRangeForIterable(
+    source: ExprNode,
+    line: number,
+  ): Array<Extract<RuntimeValue, { kind: "reference" }>> {
+    const value = this.ensureInitialized(this.evaluateExpr(source), line, "value");
+    if (value.kind === "array") {
+      const store = this.arrays.get(value.ref);
+      if (store === undefined) {
+        this.fail("invalid array reference", line);
+      }
+      return store.values.map((_entry, index) => ({
+        kind: "reference",
+        type: { kind: "ReferenceType", referredType: store.type.elementType },
+        target: { kind: "array", ref: value.ref, index, type: store.type.elementType },
+      }));
+    }
+    if (value.kind === "string") {
+      if (source.kind !== "Identifier" && source.kind !== "IndexExpr" && source.kind !== "DerefExpr") {
+        this.fail("range-based for over string requires an assignable source", line);
+      }
+      const parent = this.resolveAssignTargetLocation(source, line);
+      return Array.from({ length: value.value.length }, (_unused, index) => ({
+        kind: "reference",
+        type: { kind: "ReferenceType", referredType: { kind: "PrimitiveType", name: "string" } },
+        target: { kind: "string", parent, index },
+      }));
+    }
+    this.fail("range-based for requires array, vector, or string", line);
+  }
+
+  private defaultValueForDeclaredType(
+    type: FunctionDeclNode["returnType"],
+    global: boolean,
+    line: number,
+  ): RuntimeValue {
+    if (type.kind === "ReferenceType") {
+      this.fail("reference variable must be initialized", line);
+    }
+    if (global) {
+      return this.defaultValueForType(type, line);
+    }
+    if (type.kind === "PointerType") {
+      return { kind: "uninitialized", expectedType: type };
+    }
+    if (type.kind !== "PrimitiveType") {
+      return this.defaultValueForType(type, line);
+    }
+    return uninitializedForType(type);
+  }
+
+  private initializeDeclaredValue(
+    type: FunctionDeclNode["returnType"],
+    initializer: ExprNode,
+    line: number,
+  ): RuntimeValue {
+    if (type.kind === "ReferenceType") {
+      if (
+        initializer.kind !== "Identifier" &&
+        initializer.kind !== "IndexExpr" &&
+        initializer.kind !== "DerefExpr"
+      ) {
+        this.fail("reference initializer must be an lvalue", line);
+      }
+      return {
+        kind: "reference",
+        type,
+        target: this.resolveAssignTargetLocation(initializer, line),
+      };
+    }
+    return this.assertType(type, this.evaluateExpr(initializer), line);
   }
 }
 

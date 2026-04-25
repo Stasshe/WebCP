@@ -1,4 +1,5 @@
 import type {
+  ArrayTypeNode,
   ArrayDeclNode,
   AssignTargetNode,
   BlockStmtNode,
@@ -8,6 +9,8 @@ import type {
   ForInitNode,
   FunctionDeclNode,
   PrimitiveTypeNode,
+  RangeForStmtNode,
+  ReferenceTypeNode,
   SourceRange,
   StatementNode,
   Token,
@@ -15,7 +18,14 @@ import type {
   VarDeclNode,
   VectorDeclNode,
 } from "../types";
-import { arrayType, isPrimitiveType, primitiveType, vectorType } from "../types";
+import {
+  arrayType,
+  isPrimitiveType,
+  pointerType,
+  primitiveType,
+  referenceType,
+  vectorType,
+} from "../types";
 
 const TYPE_KEYWORDS = new Set<string>(["int", "long", "double", "bool", "string", "void"]);
 
@@ -41,28 +51,23 @@ export abstract class BaseParser {
     }
 
     while (true) {
-      const type = this.parseType();
+      const type = this.parseTypeSpecifier();
       if (type === null) {
         break;
       }
-      this.matchSymbol("&");
-      const nameToken = this.consumeIdentifier("expected parameter name");
-      if (nameToken === null) {
+      const declarator = this.parseNamedDeclarator(type, { allowUnsizedArrays: true });
+      if (declarator === null) {
         break;
       }
-      let paramType = type;
-      if (!this.isVoidTypeNode(type) && this.checkSymbol("[")) {
-        const dimensions = this.parseArrayDimensions("parameter", false);
-        if (dimensions === null) {
-          break;
-        }
-        paramType = this.wrapArrayDimensions(type, dimensions.length);
-      }
+      const paramType =
+        declarator.dimensions.length > 0
+          ? this.wrapArrayDimensions(declarator.type, declarator.dimensions.length)
+          : declarator.type;
       params.push({
         kind: "Param",
         type: paramType,
-        name: nameToken.text,
-        ...this.rangeToPrevious(nameToken),
+        name: declarator.nameToken.text,
+        ...this.rangeToPrevious(declarator.nameToken),
       });
 
       if (this.matchSymbol(")")) {
@@ -125,15 +130,11 @@ export abstract class BaseParser {
     }
 
     if (this.checkTypeStart()) {
-      const type = this.parseType();
+      const type = this.parseTypeSpecifier();
       if (type === null) {
         return null;
       }
-      const nameToken = this.consumeIdentifier("expected variable name");
-      if (nameToken === null) {
-        return null;
-      }
-      const declarations = this.parseDeclarationList(type, nameToken);
+      const declarations = this.parseDeclarationList(type);
       if (declarations === null) {
         return null;
       }
@@ -230,6 +231,14 @@ export abstract class BaseParser {
       const forToken = this.previous();
       if (!this.consumeSymbol("(", "expected '(' after for")) {
         return null;
+      }
+
+      if (this.isRangeForClause()) {
+        const rangeFor = this.parseRangeForStatement(forToken);
+        if (rangeFor === null) {
+          return null;
+        }
+        return rangeFor;
       }
 
       const init = this.parseForInit();
@@ -373,22 +382,7 @@ export abstract class BaseParser {
     if (type === null) {
       return null;
     }
-
-    const nameToken = this.consumeIdentifier("expected variable name");
-    if (nameToken === null) {
-      return null;
-    }
-
-    const initializer = this.matchSymbol("=") ? this.parseExpression() : null;
-    return {
-      kind: "VarDecl",
-      type,
-      name: nameToken.text,
-      initializer,
-      ...(initializer === null
-        ? this.rangeFrom(nameToken, nameToken)
-        : this.rangeFromNode(nameToken, initializer)),
-    };
+    return this.parseSingleVarDeclaratorFromBaseType(type);
   }
 
   protected parseVarDeclListNoSemicolon(): VarDeclNode[] | null {
@@ -396,19 +390,13 @@ export abstract class BaseParser {
     if (type === null) {
       return null;
     }
-    const nameToken = this.consumeIdentifier("expected variable name");
-    if (nameToken === null) {
-      return null;
-    }
-    const declarations = this.parseVarDeclaratorList(type, nameToken);
-    return declarations;
+    return this.parseVarDeclaratorList(type);
   }
 
   protected parseDeclarationList(
     type: TypeNode,
-    firstNameToken: Token,
   ): Array<VarDeclNode | ArrayDeclNode | VectorDeclNode> | null {
-    const declarations = this.parseDeclaratorList(type, firstNameToken);
+    const declarations = this.parseDeclaratorList(type);
     if (declarations === null) {
       return null;
     }
@@ -420,21 +408,16 @@ export abstract class BaseParser {
 
   protected parseDeclaratorList(
     type: TypeNode,
-    firstNameToken: Token,
   ): Array<VarDeclNode | ArrayDeclNode | VectorDeclNode> | null {
     const declarations: Array<VarDeclNode | ArrayDeclNode | VectorDeclNode> = [];
-    const first = this.parseSingleDeclarator(type, firstNameToken);
+    const first = this.parseSingleDeclarator(type);
     if (first === null) {
       return null;
     }
     declarations.push(first);
 
     while (this.matchSymbol(",")) {
-      const nameToken = this.consumeIdentifier("expected variable name");
-      if (nameToken === null) {
-        return null;
-      }
-      const next = this.parseSingleDeclarator(type, nameToken);
+      const next = this.parseSingleDeclarator(type);
       if (next === null) {
         return null;
       }
@@ -446,21 +429,16 @@ export abstract class BaseParser {
 
   protected parseVarDeclaratorList(
     type: Extract<TypeNode, { kind: "PrimitiveType" }>,
-    firstNameToken: Token,
   ): VarDeclNode[] | null {
     const declarations: VarDeclNode[] = [];
-    const first = this.parseSingleVarDeclarator(type, firstNameToken);
+    const first = this.parseSingleVarDeclaratorFromBaseType(type);
     if (first === null) {
       return null;
     }
     declarations.push(first);
 
     while (this.matchSymbol(",")) {
-      const nameToken = this.consumeIdentifier("expected variable name");
-      if (nameToken === null) {
-        return null;
-      }
-      const next = this.parseSingleVarDeclarator(type, nameToken);
+      const next = this.parseSingleVarDeclaratorFromBaseType(type);
       if (next === null) {
         return null;
       }
@@ -470,27 +448,21 @@ export abstract class BaseParser {
     return declarations;
   }
 
-  protected parseSingleDeclarator(
-    type: TypeNode,
-    nameToken: Token,
-  ): VarDeclNode | ArrayDeclNode | VectorDeclNode | null {
-    if (this.checkSymbol("[")) {
-      return this.finishArrayDecl(type, nameToken, false);
-    }
-    if (type.kind === "VectorType") {
-      return this.finishVectorDecl(type, nameToken, false);
-    }
-    if (!isPrimitiveType(type)) {
-      this.errorAt(nameToken, `invalid declarator for type '${type.kind}'`);
+  protected parseSingleDeclarator(type: TypeNode): VarDeclNode | ArrayDeclNode | VectorDeclNode | null {
+    const declarator = this.parseNamedDeclarator(type, { allowUnsizedArrays: false });
+    if (declarator === null) {
       return null;
     }
-    return this.parseSingleVarDeclarator(type, nameToken);
+    if (declarator.dimensions.length > 0) {
+      return this.finishArrayDecl(declarator.type, declarator.nameToken, declarator.dimensions, false);
+    }
+    if (declarator.type.kind === "VectorType") {
+      return this.finishVectorDecl(declarator.type, declarator.nameToken, false);
+    }
+    return this.parseSingleVarDeclarator(declarator.type, declarator.nameToken);
   }
 
-  protected parseSingleVarDeclarator(
-    type: Extract<TypeNode, { kind: "PrimitiveType" }>,
-    nameToken: Token,
-  ): VarDeclNode | null {
+  protected parseSingleVarDeclarator(type: TypeNode, nameToken: Token): VarDeclNode | null {
     const initializer = this.matchSymbol("=") ? this.parseExpression() : null;
     return {
       kind: "VarDecl",
@@ -506,15 +478,11 @@ export abstract class BaseParser {
   protected finishArrayDecl(
     type: TypeNode,
     nameToken: Token,
+    dimensions: bigint[],
     consumeTerminator = true,
   ): ArrayDeclNode | null {
     if (this.isVoidTypeNode(type)) {
       this.errorAt(nameToken, "array element type cannot be void");
-      return null;
-    }
-
-    const dimensions = this.parseArrayDimensions("array", true);
-    if (dimensions === null) {
       return null;
     }
     if (dimensions.length === 0) {
@@ -590,6 +558,10 @@ export abstract class BaseParser {
       return this.parseVectorType();
     }
     return this.parsePrimitiveType();
+  }
+
+  protected parseTypeSpecifier(): TypeNode | null {
+    return this.parseType();
   }
 
   protected parseVectorType(): VectorDeclNode["type"] | null {
@@ -841,7 +813,16 @@ export abstract class BaseParser {
   }
 
   private isVoidTypeNode(type: TypeNode): boolean {
-    return isPrimitiveType(type) && type.name === "void";
+    if (isPrimitiveType(type)) {
+      return type.name === "void";
+    }
+    if (type.kind === "PointerType") {
+      return this.isVoidTypeNode(type.pointeeType);
+    }
+    if (type.kind === "ReferenceType") {
+      return this.isVoidTypeNode(type.referredType);
+    }
+    return this.isVoidTypeNode(type.elementType);
   }
 
   private consumeTypeClose(message: string): boolean {
@@ -861,10 +842,140 @@ export abstract class BaseParser {
       { ...token, col: token.col + 1, endCol: token.endCol, text: ">" },
     );
   }
+
+  private parseSingleVarDeclaratorFromBaseType(
+    type: Extract<TypeNode, { kind: "PrimitiveType" }>,
+  ): VarDeclNode | null {
+    const declarator = this.parseNamedDeclarator(type, { allowUnsizedArrays: false });
+    if (declarator === null) {
+      return null;
+    }
+    if (declarator.dimensions.length > 0) {
+      this.errorAt(declarator.nameToken, "for-loop initializer variable cannot be array");
+      return null;
+    }
+    return this.parseSingleVarDeclarator(declarator.type, declarator.nameToken);
+  }
+
+  private parseNamedDeclarator(
+    baseType: TypeNode,
+    options: { allowUnsizedArrays: boolean },
+  ): { nameToken: Token; type: TypeNode; dimensions: bigint[] } | null {
+    let declaredType: TypeNode = baseType;
+    while (this.matchSymbol("*")) {
+      declaredType = pointerType(declaredType);
+    }
+    if (this.matchSymbol("&")) {
+      declaredType = referenceType(declaredType);
+    }
+    const nameToken = this.consumeIdentifier("expected variable name");
+    if (nameToken === null) {
+      return null;
+    }
+    const dimensions = this.checkSymbol("[")
+      ? this.parseArrayDimensions(
+          options.allowUnsizedArrays ? "parameter" : "array",
+          !options.allowUnsizedArrays,
+        )
+      : [];
+    if (dimensions === null) {
+      return null;
+    }
+    return { nameToken, type: declaredType, dimensions };
+  }
+
+  private isRangeForClause(): boolean {
+    let depth = 0;
+    for (let cursor = this.index; cursor < this.tokens.length; cursor += 1) {
+      const token = this.tokens[cursor];
+      if (token === undefined || token.kind === "eof") {
+        return false;
+      }
+      if (token.kind !== "symbol") {
+        continue;
+      }
+      if (token.text === "(" || token.text === "[" || token.text === "{") {
+        depth += 1;
+        continue;
+      }
+      if (token.text === ")" || token.text === "]" || token.text === "}") {
+        if (depth === 0 && token.text === ")") {
+          return false;
+        }
+        depth = Math.max(0, depth - 1);
+        continue;
+      }
+      if (depth === 0 && token.text === ":") {
+        return true;
+      }
+      if (depth === 0 && token.text === ";") {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  private parseRangeForStatement(forToken: Token): RangeForStmtNode | null {
+    const binding = this.parseRangeForBinding();
+    if (binding === null) {
+      return null;
+    }
+    if (!this.consumeSymbol(":", "expected ':' in range-based for")) {
+      return null;
+    }
+    const source = this.parseExpression();
+    if (!this.consumeSymbol(")", "expected ')' after range-based for")) {
+      return null;
+    }
+    const body = this.parseStmtOrBlock();
+    if (body === null) {
+      return null;
+    }
+    return {
+      kind: "RangeForStmt",
+      itemName: binding.name,
+      itemType: binding.type,
+      itemByReference: binding.byReference,
+      source,
+      body,
+      ...this.rangeFromNode(forToken, body),
+    };
+  }
+
+  private parseRangeForBinding(): { name: string; type: TypeNode | null; byReference: boolean } | null {
+    if (this.matchKeyword("auto")) {
+      const byReference = this.matchSymbol("&");
+      const nameToken = this.consumeIdentifier("expected loop variable name");
+      if (nameToken === null) {
+        return null;
+      }
+      return { name: nameToken.text, type: null, byReference };
+    }
+    const baseType = this.parseTypeSpecifier();
+    if (baseType === null) {
+      return null;
+    }
+    const declarator = this.parseNamedDeclarator(baseType, { allowUnsizedArrays: true });
+    if (declarator === null) {
+      return null;
+    }
+    if (declarator.dimensions.length > 0) {
+      this.errorAt(declarator.nameToken, "range-based for variable cannot be array");
+      return null;
+    }
+    return {
+      name: declarator.nameToken.text,
+      type:
+        declarator.type.kind === "ReferenceType"
+          ? declarator.type.referredType
+          : declarator.type,
+      byReference: declarator.type.kind === "ReferenceType",
+    };
+  }
 }
 
 export function isAssignTarget(expr: ExprNode): expr is AssignTargetNode {
-  return expr.kind === "Identifier" || expr.kind === "IndexExpr";
+  return expr.kind === "Identifier" || expr.kind === "IndexExpr" || expr.kind === "DerefExpr";
 }
 
 export function tokensStart(tokens: Token[]): { line: number; col: number } {

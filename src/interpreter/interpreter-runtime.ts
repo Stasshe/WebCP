@@ -1,5 +1,5 @@
 import { RuntimeTrap } from "../runtime/errors";
-import type { RuntimeValue } from "../runtime/value";
+import type { RuntimeLocation, RuntimeValue } from "../runtime/value";
 import { stringifyValue } from "../runtime/value";
 import type {
   ArrayDeclNode,
@@ -18,7 +18,7 @@ import type {
   VectorDeclNode,
   VectorTypeNode,
 } from "../types";
-import { isPrimitiveType, typeToString } from "../types";
+import { isPointerType, isPrimitiveType, isReferenceType, typeToString } from "../types";
 
 export type Scope = Map<string, RuntimeValue>;
 export type ArrayStore = {
@@ -234,11 +234,12 @@ export abstract class InterpreterRuntime {
       return;
     }
     if (current.kind === "uninitialized") {
-      if (current.expected === "int") {
+      const expectedType = current.expectedType;
+      if (expectedType.kind === "PrimitiveType" && (expectedType.name === "int" || expectedType.name === "long long")) {
         this.writeAssignTarget(target, { kind: "int", value: BigInt(token) }, line);
-      } else if (current.expected === "double") {
+      } else if (expectedType.kind === "PrimitiveType" && expectedType.name === "double") {
         this.writeAssignTarget(target, { kind: "double", value: Number(token) }, line);
-      } else if (current.expected === "bool") {
+      } else if (expectedType.kind === "PrimitiveType" && expectedType.name === "bool") {
         if (token !== "0" && token !== "1") {
           this.fail(`cannot convert '${token}' to bool`, line);
         }
@@ -252,19 +253,17 @@ export abstract class InterpreterRuntime {
   }
 
   protected readAssignTarget(target: AssignTargetNode, line: number): RuntimeValue {
-    if (target.kind === "Identifier") {
-      return this.resolve(target.name, line);
-    }
-    return this.getIndexedValue(target.target, target.index, line);
+    return this.readLocation(this.resolveAssignTargetLocation(target, line), line);
   }
 
   protected writeAssignTarget(target: AssignTargetNode, value: RuntimeValue, line: number): void {
-    if (target.kind === "Identifier") {
-      this.assign(target.name, value, line);
-      return;
-    }
-    this.setIndexedValue(target.target, target.index, value, line);
+    this.writeLocation(this.resolveAssignTargetLocation(target, line), value, line);
   }
+
+  protected abstract resolveAssignTargetLocation(
+    target: AssignTargetNode,
+    line: number,
+  ): RuntimeLocation;
 
   protected abstract getIndexedValue(
     targetExpr: ExprNode,
@@ -327,6 +326,14 @@ export abstract class InterpreterRuntime {
   }
 
   protected resolve(name: string, line: number): RuntimeValue {
+    const raw = this.resolveRaw(name, line);
+    if (raw.kind === "reference") {
+      return this.readLocation(raw.target, line);
+    }
+    return raw;
+  }
+
+  protected resolveRaw(name: string, line: number): RuntimeValue {
     for (let i = this.scopeStack.length - 1; i >= 0; i -= 1) {
       const scope = this.scopeStack[i];
       if (scope === undefined) {
@@ -346,7 +353,42 @@ export abstract class InterpreterRuntime {
     this.fail(`'${name}' was not declared in this scope`, line);
   }
 
+  protected resolveBindingLocation(name: string, line: number): RuntimeLocation {
+    for (let i = this.scopeStack.length - 1; i >= 0; i -= 1) {
+      const scope = this.scopeStack[i];
+      if (scope === undefined || !scope.has(name)) {
+        continue;
+      }
+      const value = scope.get(name);
+      if (value === undefined) {
+        break;
+      }
+      if (value.kind === "reference") {
+        return value.target;
+      }
+      return { kind: "binding", scope, name, type: this.runtimeValueToType(value, line) };
+    }
+
+    if (this.globals.has(name)) {
+      const value = this.globals.get(name);
+      if (value === undefined) {
+        this.fail(`'${name}' was not declared in this scope`, line);
+      }
+      if (value.kind === "reference") {
+        return value.target;
+      }
+      return { kind: "binding", scope: this.globals, name, type: this.runtimeValueToType(value, line) };
+    }
+
+    this.fail(`'${name}' was not declared in this scope`, line);
+  }
+
   protected assign(name: string, value: RuntimeValue, line: number): void {
+    const raw = this.resolveRaw(name, line);
+    if (raw.kind === "reference") {
+      this.writeLocation(raw.target, value, line);
+      return;
+    }
     for (let i = this.scopeStack.length - 1; i >= 0; i -= 1) {
       const scope = this.scopeStack[i];
       if (scope === undefined) {
@@ -378,10 +420,17 @@ export abstract class InterpreterRuntime {
     line: number,
   ): RuntimeValue {
     if (current.kind === "uninitialized") {
-      return this.coerceRuntimeValue(current.expected, value, line);
+      return this.assertType(current.expectedType, value, line);
     }
     if (current.kind === "array") {
       this.fail("cannot assign to array value directly", line);
+    }
+    if (current.kind === "pointer") {
+      return this.assertType({ kind: "PointerType", pointeeType: current.pointeeType }, value, line);
+    }
+    if (current.kind === "reference") {
+      this.writeLocation(current.target, value, line);
+      return current;
     }
     if (current.kind === "void") {
       this.fail("cannot assign to void", line);
@@ -397,7 +446,12 @@ export abstract class InterpreterRuntime {
     const runtimeType = normalizedType === "long long" ? "int" : normalizedType;
 
     if (value.kind === "uninitialized") {
-      if (value.expected !== runtimeType) {
+      const expectedType = value.expectedType;
+      if (!isPrimitiveType(expectedType)) {
+        return this.assertType(type, value, line);
+      }
+      const expectedRuntimeType = expectedType.name === "long long" ? "int" : expectedType.name;
+      if (expectedRuntimeType !== runtimeType) {
         return this.coerceRuntimeValue(runtimeType, value, line);
       }
       return value;
@@ -406,8 +460,29 @@ export abstract class InterpreterRuntime {
   }
 
   protected assertType(type: TypeNode, value: RuntimeValue, line: number): RuntimeValue {
+    if (isReferenceType(type)) {
+      this.fail("reference values require a bound location", line);
+    }
     if (isPrimitiveType(type)) {
       return this.assertPrimitiveType(type, value, line);
+    }
+    if (isPointerType(type)) {
+      if (value.kind === "pointer") {
+        if (!this.sameType(type.pointeeType, value.pointeeType)) {
+          this.fail(
+            `cannot convert '${this.typeToRuntimeString({ kind: "PointerType", pointeeType: value.pointeeType })}' to '${this.typeToRuntimeString(type)}'`,
+            line,
+          );
+        }
+        return value;
+      }
+      if (value.kind === "int" && value.value === 0n) {
+        return { kind: "pointer", pointeeType: type.pointeeType, target: null };
+      }
+      if (value.kind === "uninitialized") {
+        return { kind: "uninitialized", expectedType: type };
+      }
+      this.fail(`cannot convert '${value.kind}' to '${this.typeKindName(type)}'`, line);
     }
 
     if (value.kind !== "array") {
@@ -422,7 +497,11 @@ export abstract class InterpreterRuntime {
       this.fail("cannot convert 'vector' to 'array'", line);
     }
 
-    if (!this.sameType(type.elementType, value.type.elementType)) {
+    if (
+      (type.kind === "ArrayType" || type.kind === "VectorType") &&
+      (value.type.kind === "ArrayType" || value.type.kind === "VectorType") &&
+      !this.sameType(type.elementType, value.type.elementType)
+    ) {
       this.fail(
         `cannot convert '${this.typeToRuntimeString(value.type)}' to '${this.typeToRuntimeString(type)}'`,
         line,
@@ -509,6 +588,10 @@ export abstract class InterpreterRuntime {
         return "array";
       case "VectorType":
         return "vector";
+      case "PointerType":
+        return "pointer";
+      case "ReferenceType":
+        return "reference";
     }
   }
 
@@ -519,6 +602,13 @@ export abstract class InterpreterRuntime {
   }
 
   protected serializeNamedValue(name: string, value: RuntimeValue): DebugValueView {
+    if (value.kind === "reference") {
+      return {
+        name,
+        kind: "reference",
+        value: this.serializeValue(this.readLocation(value.target, this.currentLine)),
+      };
+    }
     return {
       name,
       kind: value.kind,
@@ -530,8 +620,12 @@ export abstract class InterpreterRuntime {
     switch (value.kind) {
       case "array":
         return `<${value.type.kind === "VectorType" ? "vector" : "array"}#${value.ref}>`;
+      case "pointer":
+        return value.target === null ? "nullptr" : `<pointer:${typeToString(value.pointeeType)}>`;
+      case "reference":
+        return this.serializeValue(this.readLocation(value.target, this.currentLine));
       case "uninitialized":
-        return `<uninitialized:${value.expected}>`;
+        return `<uninitialized:${typeToString(value.expectedType)}>`;
       default:
         return stringifyValue(value);
     }
@@ -545,6 +639,9 @@ export abstract class InterpreterRuntime {
     const initialized = this.ensureInitialized(value, line, "value");
     if (initialized.kind === expected) {
       return initialized;
+    }
+    if (initialized.kind === "reference") {
+      return this.coerceRuntimeValue(expected, this.readLocation(initialized.target, line), line);
     }
     if (expected === "double" && initialized.kind === "int") {
       return { kind: "double", value: Number(initialized.value) };
@@ -634,12 +731,119 @@ export abstract class InterpreterRuntime {
         if (right.kind === "PrimitiveType") {
           return false;
         }
+        if (right.kind === "PointerType" || right.kind === "ReferenceType") {
+          return false;
+        }
         return this.sameType(left.elementType, right.elementType);
+      case "PointerType":
+        return right.kind === "PointerType" && this.sameType(left.pointeeType, right.pointeeType);
+      case "ReferenceType":
+        return right.kind === "ReferenceType" && this.sameType(left.referredType, right.referredType);
     }
   }
 
   private typeToRuntimeString(type: TypeNode): string {
     return typeToString(type);
+  }
+
+  protected readLocation(location: RuntimeLocation, line: number): RuntimeValue {
+    switch (location.kind) {
+      case "binding": {
+        const value = location.scope.get(location.name);
+        if (value === undefined) {
+          this.fail(`'${location.name}' was not declared in this scope`, line);
+        }
+        if (value.kind === "reference") {
+          return this.readLocation(value.target, line);
+        }
+        return value;
+      }
+      case "array": {
+        const store = this.arrays.get(location.ref);
+        if (store === undefined) {
+          this.fail("invalid array reference", line);
+        }
+        const value = store.values[location.index];
+        if (value === undefined) {
+          this.fail("invalid index access", line);
+        }
+        return value.kind === "reference" ? this.readLocation(value.target, line) : value;
+      }
+      case "string": {
+        const parent = this.readLocation(location.parent, line);
+        if (parent.kind !== "string") {
+          this.fail("type mismatch: expected string", line);
+        }
+        if (location.index < 0 || location.index >= parent.value.length) {
+          this.fail(`index ${location.index.toString()} out of range for string of size ${parent.value.length}`, line);
+        }
+        return { kind: "string", value: parent.value[location.index] ?? "" };
+      }
+    }
+  }
+
+  protected writeLocation(location: RuntimeLocation, value: RuntimeValue, line: number): void {
+    switch (location.kind) {
+      case "binding": {
+        const current = location.scope.get(location.name);
+        if (current === undefined) {
+          this.fail(`'${location.name}' was not declared in this scope`, line);
+        }
+        if (current.kind === "reference") {
+          this.writeLocation(current.target, value, line);
+          return;
+        }
+        location.scope.set(location.name, this.assignWithCurrentType(current, value, line));
+        return;
+      }
+      case "array": {
+        const store = this.arrays.get(location.ref);
+        if (store === undefined) {
+          this.fail("invalid array reference", line);
+        }
+        store.values[location.index] = this.castToElementType(value, location.type, line);
+        return;
+      }
+      case "string": {
+        const current = this.readLocation(location.parent, line);
+        if (current.kind !== "string") {
+          this.fail("type mismatch: expected string", line);
+        }
+        const assigned = this.assertType({ kind: "PrimitiveType", name: "string" }, value, line);
+        if (assigned.kind !== "string" || assigned.value.length !== 1) {
+          this.fail("string element assignment requires a single character", line);
+        }
+        const next =
+          current.value.slice(0, location.index) +
+          assigned.value +
+          current.value.slice(location.index + 1);
+        this.writeLocation(location.parent, { kind: "string", value: next }, line);
+        return;
+      }
+    }
+  }
+
+  protected runtimeValueToType(value: RuntimeValue, line: number): TypeNode {
+    switch (value.kind) {
+      case "int":
+        return { kind: "PrimitiveType", name: "int" };
+      case "double":
+        return { kind: "PrimitiveType", name: "double" };
+      case "bool":
+        return { kind: "PrimitiveType", name: "bool" };
+      case "string":
+        return { kind: "PrimitiveType", name: "string" };
+      case "array":
+        return value.type;
+      case "pointer":
+        return { kind: "PointerType", pointeeType: value.pointeeType };
+      case "reference":
+        return value.type;
+      case "uninitialized":
+        return value.expectedType;
+      case "void":
+        return { kind: "PrimitiveType", name: "void" };
+    }
   }
 }
 

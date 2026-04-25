@@ -15,7 +15,22 @@ export type VectorTypeNode = {
   elementType: TypeNode;
 };
 
-export type TypeNode = PrimitiveTypeNode | ArrayTypeNode | VectorTypeNode;
+export type PointerTypeNode = {
+  kind: "PointerType";
+  pointeeType: TypeNode;
+};
+
+export type ReferenceTypeNode = {
+  kind: "ReferenceType";
+  referredType: TypeNode;
+};
+
+export type TypeNode =
+  | PrimitiveTypeNode
+  | ArrayTypeNode
+  | VectorTypeNode
+  | PointerTypeNode
+  | ReferenceTypeNode;
 
 export type SourceLocation = {
   line: number;
@@ -57,6 +72,7 @@ export type StatementNode =
   | VarDeclNode
   | ArrayDeclNode
   | VectorDeclNode
+  | RangeForStmtNode
   | IfStmtNode
   | ForStmtNode
   | WhileStmtNode
@@ -98,6 +114,15 @@ export type VectorDeclNode = NodeBase & {
   type: VectorTypeNode;
   name: string;
   constructorArgs: ExprNode[];
+};
+
+export type RangeForStmtNode = NodeBase & {
+  kind: "RangeForStmt";
+  itemName: string;
+  itemType: TypeNode | null;
+  itemByReference: boolean;
+  source: ExprNode;
+  body: BlockStmtNode;
 };
 
 export type IfStmtNode = NodeBase & {
@@ -163,13 +188,15 @@ export type ExprNode =
   | AssignExprNode
   | BinaryExprNode
   | UnaryExprNode
+  | AddressOfExprNode
+  | DerefExprNode
   | CallExprNode
   | MethodCallExprNode
   | IndexExprNode
   | IdentifierExprNode
   | LiteralExprNode;
 
-export type AssignTargetNode = IdentifierExprNode | IndexExprNode;
+export type AssignTargetNode = IdentifierExprNode | IndexExprNode | DerefExprNode;
 
 export type AssignExprNode = NodeBase & {
   kind: "AssignExpr";
@@ -208,6 +235,16 @@ export type UnaryExprNode = NodeBase & {
   operator: "!" | "-" | "~" | "++" | "--";
   operand: ExprNode;
   isPostfix: boolean;
+};
+
+export type AddressOfExprNode = NodeBase & {
+  kind: "AddressOfExpr";
+  target: AssignTargetNode;
+};
+
+export type DerefExprNode = NodeBase & {
+  kind: "DerefExpr";
+  pointer: ExprNode;
 };
 
 export type CallExprNode = NodeBase & {
@@ -268,7 +305,16 @@ export type InterpreterOutput = {
 
 export type DebugValueView = {
   name: string;
-  kind: "int" | "double" | "bool" | "string" | "array" | "void" | "uninitialized";
+  kind:
+    | "int"
+    | "double"
+    | "bool"
+    | "string"
+    | "array"
+    | "pointer"
+    | "reference"
+    | "void"
+    | "uninitialized";
   value: string;
 };
 
@@ -356,6 +402,14 @@ export function vectorType(elementType: TypeNode): VectorTypeNode {
   return { kind: "VectorType", elementType };
 }
 
+export function pointerType(pointeeType: TypeNode): PointerTypeNode {
+  return { kind: "PointerType", pointeeType };
+}
+
+export function referenceType(referredType: TypeNode): ReferenceTypeNode {
+  return { kind: "ReferenceType", referredType };
+}
+
 export function isPrimitiveType(type: TypeNode): type is PrimitiveTypeNode {
   return type.kind === "PrimitiveType";
 }
@@ -368,6 +422,14 @@ export function isVectorType(type: TypeNode): type is VectorTypeNode {
   return type.kind === "VectorType";
 }
 
+export function isPointerType(type: TypeNode): type is PointerTypeNode {
+  return type.kind === "PointerType";
+}
+
+export function isReferenceType(type: TypeNode): type is ReferenceTypeNode {
+  return type.kind === "ReferenceType";
+}
+
 export function typeToString(type: TypeNode): string {
   switch (type.kind) {
     case "PrimitiveType":
@@ -376,5 +438,9 @@ export function typeToString(type: TypeNode): string {
       return `${typeToString(type.elementType)}[]`;
     case "VectorType":
       return `vector<${typeToString(type.elementType)}>`;
+    case "PointerType":
+      return `${typeToString(type.pointeeType)}*`;
+    case "ReferenceType":
+      return `${typeToString(type.referredType)}&`;
   }
 }

@@ -1,4 +1,11 @@
-import type { AssignExprNode, BinaryExprNode, ExprNode, UnaryExprNode } from "../types";
+import type {
+  AddressOfExprNode,
+  AssignExprNode,
+  BinaryExprNode,
+  DerefExprNode,
+  ExprNode,
+  UnaryExprNode,
+} from "../types";
 import { BaseParser, isAssignTarget } from "./base-parser";
 
 export abstract class ExpressionParser extends BaseParser {
@@ -127,6 +134,32 @@ export abstract class ExpressionParser extends BaseParser {
         operand,
         isPostfix: false,
         ...this.rangeFromNode(op, operand),
+      };
+      return node;
+    }
+
+    if (this.matchSymbol("&")) {
+      const operator = this.previous();
+      const operand = this.parseUnary();
+      if (!isAssignTarget(operand)) {
+        this.errorAt(operator, "address-of operand must be an lvalue");
+        return operand;
+      }
+      const node: AddressOfExprNode = {
+        kind: "AddressOfExpr",
+        target: operand,
+        ...this.rangeFromNode(operator, operand),
+      };
+      return node;
+    }
+
+    if (this.matchSymbol("*")) {
+      const operator = this.previous();
+      const pointer = this.parseUnary();
+      const node: DerefExprNode = {
+        kind: "DerefExpr",
+        pointer,
+        ...this.rangeFromNode(operator, pointer),
       };
       return node;
     }

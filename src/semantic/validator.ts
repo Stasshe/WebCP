@@ -4,10 +4,16 @@ import type {
   FunctionDeclNode,
   PrimitiveTypeNode,
   ProgramNode,
+  RangeForStmtNode,
   StatementNode,
   TypeNode,
 } from "../types";
-import { isPrimitiveType, typeToString } from "../types";
+import {
+  isPointerType,
+  isPrimitiveType,
+  isReferenceType,
+  typeToString,
+} from "../types";
 
 type ValidationContext = {
   errors: CompileError[];
@@ -105,11 +111,19 @@ function validateParameterType(
     pushError(context, line, col, "parameter type cannot be void");
     return;
   }
+  if (containsReferenceBelowTopLevel(type)) {
+    pushError(context, line, col, "array/vector element type cannot be reference");
+  }
 }
 
 function validateFunctionReturnType(fn: FunctionDeclNode, context: ValidationContext): void {
-  if (fn.returnType.kind === "ArrayType") {
-    pushError(context, fn.line, fn.col, "function return type cannot be array");
+  if (fn.returnType.kind === "ArrayType" || fn.returnType.kind === "ReferenceType") {
+    pushError(
+      context,
+      fn.line,
+      fn.col,
+      `function return type cannot be ${fn.returnType.kind === "ArrayType" ? "array" : "reference"}`,
+    );
   }
 }
 
@@ -135,6 +149,9 @@ function validateStatement(stmt: StatementNode, context: ValidationContext): voi
     case "ArrayDecl":
     case "VectorDecl":
       validateDecl(stmt, context);
+      return;
+    case "RangeForStmt":
+      validateRangeFor(stmt, context);
       return;
     case "IfStmt":
       for (const branch of stmt.branches) {
@@ -210,17 +227,23 @@ function validateDecl(
 ): void {
   switch (stmt.kind) {
     case "VarDecl":
-      if (!isPrimitiveType(stmt.type)) {
+      if (stmt.type.kind === "ArrayType" || stmt.type.kind === "VectorType") {
         pushError(
           context,
           stmt.line,
           stmt.col,
-          `variable type must be primitive, got '${typeToString(stmt.type)}'`,
+          `variable type cannot be '${typeToString(stmt.type)}'`,
         );
-      } else if (stmt.type.name === "void") {
+      } else if (containsVoid(stmt.type)) {
         pushError(context, stmt.line, stmt.col, "variable type cannot be void");
       }
-      if (stmt.initializer !== null) {
+      if (isReferenceType(stmt.type)) {
+        if (stmt.initializer === null) {
+          pushError(context, stmt.line, stmt.col, "reference variable must be initialized");
+        } else {
+          validateReferenceBinding(stmt.initializer, stmt.type.referredType, context);
+        }
+      } else if (stmt.initializer !== null) {
         validateExpr(stmt.initializer, context, stmt.type);
       }
       defineSymbol(stmt.name, stmt.type, stmt.line, stmt.col, context);
@@ -228,6 +251,9 @@ function validateDecl(
     case "ArrayDecl":
       if (containsVoid(stmt.type)) {
         pushError(context, stmt.line, stmt.col, "array element type cannot be void");
+      }
+      if (containsReferenceBelowTopLevel(stmt.type.elementType)) {
+        pushError(context, stmt.line, stmt.col, "array element type cannot be reference");
       }
       for (const init of stmt.initializers) {
         validateExpr(init, context, baseElementType(stmt.type));
@@ -238,6 +264,9 @@ function validateDecl(
       if (containsVoid(stmt.type)) {
         pushError(context, stmt.line, stmt.col, "vector element type cannot be void");
       }
+      if (containsReferenceBelowTopLevel(stmt.type.elementType)) {
+        pushError(context, stmt.line, stmt.col, "vector element type cannot be reference");
+      }
       if (stmt.constructorArgs.length >= 1) {
         validateExpr(stmt.constructorArgs[0] ?? null, context, "int");
       }
@@ -247,6 +276,39 @@ function validateDecl(
       defineSymbol(stmt.name, stmt.type, stmt.line, stmt.col, context);
       return;
   }
+}
+
+function validateRangeFor(stmt: RangeForStmtNode, context: ValidationContext): void {
+  const sourceType = validateExpr(stmt.source, context);
+  const elementType = sourceType === null ? null : getIterableElementType(sourceType, stmt.source.line, stmt.source.col, context);
+  const itemType = stmt.itemType ?? elementType;
+
+  if (itemType === null) {
+    pushScope(context);
+    validateBlock(stmt.body.statements, context);
+    popScope(context);
+    return;
+  }
+
+  if (!isAssignable(elementType ?? itemType, itemType)) {
+    pushError(
+      context,
+      stmt.line,
+      stmt.col,
+      `cannot convert '${typeToString(elementType ?? itemType)}' to '${typeToString(itemType)}'`,
+    );
+  }
+
+  pushScope(context);
+  defineSymbol(
+    stmt.itemName,
+    stmt.itemByReference ? { kind: "ReferenceType", referredType: itemType } : itemType,
+    stmt.line,
+    stmt.col,
+    context,
+  );
+  validateBlock(stmt.body.statements, context);
+  popScope(context);
 }
 
 function validateReturn(
@@ -331,7 +393,7 @@ function inferExprType(expr: ExprNode, context: ValidationContext): TypeNode | n
       if (expr.name === "endl") {
         return { kind: "PrimitiveType", name: "string" };
       }
-      return resolveSymbol(expr.name, expr.line, expr.col, context);
+      return unwrapReference(resolveSymbol(expr.name, expr.line, expr.col, context));
     case "IndexExpr": {
       const targetType = inferExprType(expr.target, context);
       validateExpr(expr.index, context, "int");
@@ -347,8 +409,23 @@ function inferExprType(expr: ExprNode, context: ValidationContext): TypeNode | n
       pushError(context, expr.line, expr.col, "type mismatch: expected array/vector/string");
       return null;
     }
+    case "AddressOfExpr": {
+      const targetType = inferLValueType(expr.target, context);
+      return targetType === null ? null : { kind: "PointerType", pointeeType: targetType };
+    }
+    case "DerefExpr": {
+      const pointerType = inferExprType(expr.pointer, context);
+      if (pointerType === null) {
+        return null;
+      }
+      if (pointerType.kind !== "PointerType") {
+        pushError(context, expr.line, expr.col, "type mismatch: expected pointer");
+        return null;
+      }
+      return pointerType.pointeeType;
+    }
     case "AssignExpr": {
-      const targetType = inferExprType(expr.target, context);
+      const targetType = inferLValueType(expr.target, context);
       const valueType = validateExpr(expr.value, context, targetType ?? undefined);
       if (expr.operator !== "=" && targetType !== null && !isNumericType(targetType)) {
         pushError(context, expr.line, expr.col, "type mismatch: expected numeric");
@@ -432,6 +509,27 @@ function inferBinaryType(
     expr.operator === ">="
   ) {
     if (
+      (left !== null && isPointerType(left)) ||
+      (right !== null && isPointerType(right))
+    ) {
+      if (
+        expr.operator !== "==" &&
+        expr.operator !== "!="
+      ) {
+        pushError(context, expr.line, expr.col, "pointer comparison only supports == and !=");
+      }
+      if (
+        left !== null &&
+        right !== null &&
+        !sameType(left, right) &&
+        !(isPointerType(left) && isNullPointerType(right)) &&
+        !(isPointerType(right) && isNullPointerType(left))
+      ) {
+        pushError(context, expr.line, expr.col, "type mismatch in comparison");
+      }
+      return { kind: "PrimitiveType", name: "bool" };
+    }
+    if (
       left !== null &&
       right !== null &&
       !sameType(left, right) &&
@@ -504,7 +602,7 @@ function validateCall(
       if (arg === undefined) {
         continue;
       }
-      validateExpr(arg, context, param?.type);
+      validateArgumentAgainstParam(arg, param?.type, context);
     }
 
     return fn.returnType;
@@ -746,8 +844,8 @@ function resolveSymbol(
 ): TypeNode | null {
   for (let i = context.scopes.length - 1; i >= 0; i -= 1) {
     const scope = context.scopes[i];
-    if (scope?.has(name)) {
-      return scope.get(name) ?? null;
+  if (scope?.has(name)) {
+    return scope.get(name) ?? null;
     }
   }
   pushError(context, line, col, `'${name}' was not declared in this scope`);
@@ -813,6 +911,16 @@ function sameType(left: TypeNode, right: TypeNode): boolean {
         left.elementType,
         (right as Extract<TypeNode, { kind: "VectorType" }>).elementType,
       );
+    case "PointerType":
+      return sameType(
+        left.pointeeType,
+        (right as Extract<TypeNode, { kind: "PointerType" }>).pointeeType,
+      );
+    case "ReferenceType":
+      return sameType(
+        left.referredType,
+        (right as Extract<TypeNode, { kind: "ReferenceType" }>).referredType,
+      );
   }
 }
 
@@ -831,7 +939,7 @@ function isAssignable(source: TypeNode, target: TypeNode): boolean {
 }
 
 function isAssignableExpr(expr: ExprNode): boolean {
-  return expr.kind === "Identifier" || expr.kind === "IndexExpr";
+  return expr.kind === "Identifier" || expr.kind === "IndexExpr" || expr.kind === "DerefExpr";
 }
 
 function isIntType(type: TypeNode): boolean {
@@ -854,6 +962,10 @@ function isStringType(type: TypeNode): boolean {
   return isPrimitiveType(type) && type.name === "string";
 }
 
+function isNullPointerType(type: TypeNode): boolean {
+  return isPrimitiveType(type) && type.name === "int";
+}
+
 function isInputTargetType(type: TypeNode): boolean {
   return isPrimitiveType(type) && type.name !== "void";
 }
@@ -861,6 +973,12 @@ function isInputTargetType(type: TypeNode): boolean {
 function containsVoid(type: TypeNode): boolean {
   if (isPrimitiveType(type)) {
     return type.name === "void";
+  }
+  if (type.kind === "PointerType") {
+    return containsVoid(type.pointeeType);
+  }
+  if (type.kind === "ReferenceType") {
+    return containsVoid(type.referredType);
   }
   return containsVoid(type.elementType);
 }
@@ -870,6 +988,101 @@ function baseElementType(type: TypeNode): TypeNode {
     return baseElementType(type.elementType);
   }
   return type;
+}
+
+function unwrapReference(type: TypeNode | null): TypeNode | null {
+  if (type === null) {
+    return null;
+  }
+  return type.kind === "ReferenceType" ? type.referredType : type;
+}
+
+function containsReferenceBelowTopLevel(type: TypeNode): boolean {
+  if (type.kind === "ReferenceType") {
+    return false;
+  }
+  return containsReferenceNested(type);
+}
+
+function containsReferenceNested(type: TypeNode): boolean {
+  if (type.kind === "ReferenceType") {
+    return true;
+  }
+  if (type.kind === "PointerType") {
+    return containsReferenceNested(type.pointeeType);
+  }
+  if (type.kind === "ArrayType" || type.kind === "VectorType") {
+    return containsReferenceNested(type.elementType);
+  }
+  return false;
+}
+
+function inferLValueType(expr: ExprNode, context: ValidationContext): TypeNode | null {
+  if (!isAssignableExpr(expr)) {
+    pushError(context, expr.line, expr.col, "expression is not assignable");
+    return null;
+  }
+  return inferExprType(expr, context);
+}
+
+function validateReferenceBinding(
+  expr: ExprNode,
+  expected: TypeNode,
+  context: ValidationContext,
+): void {
+  const actual = validateExpr(expr, context);
+  if (!isAssignableExpr(expr)) {
+    pushError(context, expr.line, expr.col, "reference initializer must be an lvalue");
+    return;
+  }
+  if (actual !== null && !isAssignable(actual, expected)) {
+    pushError(
+      context,
+      expr.line,
+      expr.col,
+      `cannot convert '${typeToString(actual)}' to '${typeToString(expected)}'`,
+    );
+  }
+}
+
+function validateArgumentAgainstParam(
+  arg: ExprNode,
+  paramType: TypeNode | undefined,
+  context: ValidationContext,
+): void {
+  if (paramType === undefined) {
+    validateExpr(arg, context);
+    return;
+  }
+  if (isReferenceType(paramType)) {
+    validateReferenceBinding(arg, paramType.referredType, context);
+    return;
+  }
+  if (
+    paramType.kind === "PointerType" &&
+    arg.kind === "Literal" &&
+    arg.valueType === "int" &&
+    arg.value === 0n
+  ) {
+    return;
+  }
+  validateExpr(arg, context, paramType);
+}
+
+function getIterableElementType(
+  sourceType: TypeNode,
+  line: number,
+  col: number,
+  context: ValidationContext,
+): TypeNode | null {
+  if (sourceType.kind === "ArrayType" || sourceType.kind === "VectorType") {
+    return sourceType.elementType;
+  }
+  if (isStringType(sourceType)) {
+    return { kind: "PrimitiveType", name: "string" };
+  }
+  pushError(context, line, col, "range-based for requires array, vector, or string");
+  return null;
 }
 
 function sameReceiver(left: ExprNode, right: ExprNode): boolean {
