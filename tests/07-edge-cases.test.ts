@@ -274,6 +274,57 @@ signed main() {
     expect(result.output.stdout).toBe("4\n");
   });
 
+  it("supports ios alias nullptr and nested string indexing in competitive code", () => {
+    const source = `
+#include <bits/stdc++.h>
+using namespace std;
+using ll = long long;
+const long long INF = 1LL << 60;
+#define rep(i, k, n) for (int i = k; i < n; i++)
+
+int main() {
+  ios::sync_with_stdio(false);
+  cin.tie(nullptr);
+
+  int h, w;
+  cin >> h >> w;
+  vector<string> s(h);
+  rep(i, 0, h) { cin >> s[i]; }
+
+  int ans = 0;
+  rep(h1, 0, h) {
+    rep(h2, h1, h) {
+      rep(w1, 0, w) {
+        rep(w2, w1, w) {
+          bool flag = true;
+          rep(i, h1, h2 + 1) {
+            rep(j, w1, w2 + 1) {
+              if (s[i][j] != s[h1 + h2 - i][w1 + w2 - j]) {
+                flag = false;
+                break;
+              }
+            }
+            if (!flag) {
+              break;
+            }
+          }
+          if (flag) {
+            ans++;
+          }
+        }
+      }
+    }
+  }
+  cout << ans << endl;
+
+  return 0;
+}
+`;
+    const result = compileAndRun(source, "3 2\n.#\n#.\n##\n");
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("10\n");
+  });
+
   it("for loop with no update", () => {
     const source = `
 int main() {

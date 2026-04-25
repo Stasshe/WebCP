@@ -19,6 +19,7 @@ type PreprocessResult = { ok: true; source: string } | { ok: false; errors: Comp
 
 const INCLUDE_PATTERN = /^\s*#\s*include\s*<bits\/stdc\+\+\.h>\s*$/;
 const DEFINE_PATTERN = /^\s*#\s*define\s+([A-Za-z_][A-Za-z0-9_]*)(\(([^)]*)\))?\s*(.*)$/;
+const USING_ALIAS_PATTERN = /^\s*using\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*;\s*$/;
 const CONST_DECL_PATTERN =
   /^\s*const\s+(int|long\s+long|double|bool|string)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*;\s*$/;
 
@@ -36,6 +37,16 @@ export function preprocess(source: string): PreprocessResult {
     if (!trimmed.startsWith("#")) {
       const expanded = expandLine(line, macros, lineNo, errors);
       const normalized = normalizeCompatibilitySyntax(expanded);
+      const usingAlias = normalized.match(USING_ALIAS_PATTERN);
+      if (usingAlias !== null) {
+        const name = usingAlias[1];
+        const body = usingAlias[2];
+        if (name !== undefined && body !== undefined) {
+          macros.set(name, { kind: "object", name, body });
+          output.push("");
+          continue;
+        }
+      }
       const constDecl = normalized.match(CONST_DECL_PATTERN);
       if (constDecl !== null) {
         const name = constDecl[2];
@@ -196,15 +207,18 @@ function expandLine(
 function normalizeCompatibilitySyntax(line: string): string {
   let result = line;
 
-  if (/^\s*(ios_base::sync_with_stdio|cin\.tie|cout\.tie)\s*\(/.test(result)) {
+  if (/^\s*((ios|ios_base)::sync_with_stdio|(cin|cout|cerr)\.tie)\s*\(/.test(result)) {
     return "";
   }
 
+  result = result.replace(/\bnullptr\b/g, "0");
   result = result.replace(/\bios_base::/g, "");
+  result = result.replace(/\bios::/g, "");
   result = result.replace(/\bsigned\s+main\s*\(/, "int main(");
   result = result.replace(/(\b[A-Za-z_][A-Za-z0-9_]*\b)\s*>>=\s*([^;]+);/g, "$1 = $1 >> ($2);");
   result = result.replace(/(\b[A-Za-z_][A-Za-z0-9_]*\b)\s*<<=\s*([^;]+);/g, "$1 = $1 << ($2);");
   result = normalizeScientificIntegerLiterals(result);
+  result = normalizeIntegerLiteralSuffixes(result);
 
   return result;
 }
@@ -224,6 +238,10 @@ function normalizeScientificIntegerLiterals(line: string): string {
       return `${baseText}${"0".repeat(exponent)}`;
     },
   );
+}
+
+function normalizeIntegerLiteralSuffixes(line: string): string {
+  return line.replace(/\b(\d+)(ULL|ull|UL|ul|LU|lu|LL|ll|L|l|U|u)\b/g, "$1");
 }
 
 function readStringLiteral(line: string, start: number): { text: string; nextIndex: number } {
