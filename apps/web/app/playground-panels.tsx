@@ -15,8 +15,6 @@ import { useState } from "react";
 import type { DebugState } from "@/types";
 import { getArrayRef, getScopeTitle } from "./playground-state";
 
-const COLLAPSE_THRESHOLD = 6;
-
 function ArrayElementRow({
   index,
   value,
@@ -137,7 +135,7 @@ export function DebugSidebar({
     const arrayView = arrayRef === null ? null : (arraysByRef.get(arrayRef) ?? null);
     const expandKey = `${scopeKey}-${v.name}`;
     const isExpanded = expandedArrays.has(expandKey);
-    const needsExpand = arrayView !== null && arrayView.values.length > COLLAPSE_THRESHOLD;
+    const needsExpand = arrayView !== null;
 
     return (
       <div key={expandKey}>
@@ -174,8 +172,8 @@ export function DebugSidebar({
             }`}
           >
             {arrayView
-              ? needsExpand && !isExpanded
-                ? `[${arrayView.values.slice(0, COLLAPSE_THRESHOLD).join(", ")}, …]`
+              ? arrayView.values.length > 6
+                ? `[${arrayView.values.slice(0, 6).join(", ")}, …]`
                 : `[${arrayView.values.join(", ")}]`
               : v.value}
           </span>
