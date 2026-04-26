@@ -1,4 +1,4 @@
-# WebCP
+# Fluxa-WebCP
 
 A TypeScript interpreter and step-debugger for a competitive-programming-oriented C++ subset.
 
@@ -8,7 +8,7 @@ A TypeScript interpreter and step-debugger for a competitive-programming-oriente
 
 ## What it is
 
-**WebCP** parses and executes a carefully scoped subset of C++, with a first-class step-execution API.  
+**Fluxa-WebCP** parses and executes a carefully scoped subset of C++, with a first-class step-execution API.  
 The primary use case is learning and debugging competitive programming solutions — not general C++ execution.
 
 Key design choices:
@@ -24,7 +24,7 @@ Key design choices:
 
 ```
 .
-├── src/          # WebCP — interpreter core (npm package)
+├── src/          # fluxa-webcp — interpreter core (npm package)
 └── apps/web/     # Next.js playground (web app)
 ```
 
@@ -55,15 +55,15 @@ The supported language is intentionally narrow. A full spec lives in [`SPECIFICA
 ### Install
 
 ```bash
-pnpm add webcp
+pnpm add fluxa-webcp
 # or
-npm install webcp
+npm install fluxa-webcp
 ```
 
 ### Basic usage
 
 ```typescript
-import { Compiler } from "webcp";
+import { Compiler } from "fluxa-webcp";
 
 const source = `
 #include <bits/stdc++.h>
