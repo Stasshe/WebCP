@@ -1,32 +1,60 @@
 import type { DebugState, ScopeView } from "@/types";
 
-export const starterSource = `using namespace std;
+export const starterSource = `#include <bits/stdc++.h>
+using namespace std;
 
-int square(int x) {
-    return x * x;
+int n, m;
+bool adj[105][105];
+bool visited[105];
+int comp[105];
+int numComp;
+
+void dfs(int v) {
+    visited[v] = true;
+    comp[v] = numComp;
+    for (int u = 0; u < n; u++) {
+        if (adj[v][u] && !visited[u]) {
+            dfs(u);
+        }
+    }
 }
 
 int main() {
-    int n;
-    cin >> n;
-
-    vector<int> a(n);
-    for (int i = 0; i < n; i++) {
-        a[i] = square(i);
+    cin >> n >> m;
+    for (int i = 0; i < m; i++) {
+        int u, v;
+        cin >> u >> v;
+        adj[u][v] = true;
+        adj[v][u] = true;
     }
 
-    int total = 0;
+    numComp = 0;
     for (int i = 0; i < n; i++) {
-        total += a[i];
+        if (!visited[i]) {
+            dfs(i);
+            numComp++;
+        }
     }
 
-    cout << "n=" << n << "\\n";
-    cout << "last=" << a.back() << "\\n";
-    cout << "sum=" << total << "\\n";
+    vector<int> sizes(numComp, 0);
+    for (int i = 0; i < n; i++) sizes[comp[i]]++;
+    sort(sizes.begin(), sizes.end());
+
+    cout << numComp << "\\n";
+    for (int i = 0; i < numComp; i++) {
+        if (i > 0) cout << " ";
+        cout << sizes[i];
+    }
+    cout << "\\n";
     return 0;
 }`;
 
-export const starterInput = `5`;
+export const starterInput = 
+`7 4
+0 1
+1 2
+3 4
+5 6`;
 
 export const storageKeys = {
   source: "clientsidecpp.playground.source",
