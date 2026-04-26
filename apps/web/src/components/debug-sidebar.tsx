@@ -76,11 +76,11 @@ function SectionHeader({
 
   return (
     <div
-      className={`flex select-none items-center gap-1.5 border-b border-[var(--border)] bg-[var(--bg3)] px-3 py-1.5 text-[12px] font-bold tracking-[0.08em] uppercase ${textColor}`}
+      className={`flex select-none items-center gap-1.5 border-b border-[var(--border)] bg-[var(--bg3)] px-3 py-1.5 text-[10.8px] font-bold tracking-[0.08em] uppercase ${textColor}`}
     >
       {label}
       {typeof count === "number" ? (
-        <span className="ml-auto rounded-[3px] bg-[var(--bg4)] px-1.5 text-[12px] text-[var(--text-dim)]">
+        <span className="ml-auto rounded-[3px] bg-[var(--bg4)] px-1.5 text-[10.8px] text-[var(--text-dim)]">
           {count}
         </span>
       ) : null}
@@ -89,7 +89,7 @@ function SectionHeader({
 }
 
 function EmptyState({ children }: { children: ReactNode }) {
-  return <div className="px-6 py-1 text-[14px] italic text-[var(--text-dim)]">{children}</div>;
+  return <div className="px-6 py-1 text-[12.6px] italic text-[var(--text-dim)]">{children}</div>;
 }
 
 function VariableValueTree({
@@ -115,7 +115,7 @@ function VariableValueTree({
   return (
     <div>
       <div
-        className={`debug-vars-font flex items-center gap-1.5 py-0.5 text-[12px] hover:bg-[var(--hl-line)] ${hasChildren ? "cursor-pointer" : ""}`}
+        className={`debug-vars-font flex items-center gap-1.5 py-0.5 text-[10.8px] hover:bg-[var(--hl-line)] ${hasChildren ? "cursor-pointer" : ""}`}
         style={{ paddingLeft: rowPadding }}
         role={hasChildren ? "button" : undefined}
         tabIndex={hasChildren ? 0 : undefined}
@@ -178,7 +178,7 @@ function VariableRow({
   const isExpanded = expandedKeys.has(rowKey);
   const isExpandable = arrayView !== null;
   const previewClassName =
-    arrayView === null ? "text-[var(--orange)]" : "text-[12px] text-[var(--purple)]";
+    arrayView === null ? "text-[var(--orange)]" : "text-[10.8px] text-[var(--purple)]";
 
   const handleToggle = () => {
     if (isExpandable) {
@@ -189,7 +189,7 @@ function VariableRow({
   return (
     <div>
       <div
-        className={`debug-vars-font grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1.5 px-3 py-0.5 pl-6 text-[14px] hover:bg-[var(--hl-line)] ${isExpandable ? "cursor-pointer" : ""}`}
+        className={`debug-vars-font grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1.5 px-3 py-0.5 pl-6 text-[12.6px] hover:bg-[var(--hl-line)] ${isExpandable ? "cursor-pointer" : ""}`}
         role={isExpandable ? "button" : undefined}
         tabIndex={isExpandable ? 0 : undefined}
         onClick={isExpandable ? handleToggle : undefined}
@@ -207,7 +207,7 @@ function VariableRow({
           {isExpandable ? <ExpandIcon expanded={isExpanded} /> : null}
           {variable.name}
         </span>
-        <span className="text-[12px] text-[var(--text-dim)]">
+        <span className="text-[10.8px] text-[var(--text-dim)]">
           {formatVariableKind(variable.kind, arrayView)}
         </span>
         <span className={`max-w-[275px] truncate text-right ${previewClassName}`}>
@@ -349,16 +349,16 @@ export function DebugSidebar({
         </button>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg2)] px-3 py-1 text-[14px] text-[var(--text-dim)]">
+      <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg2)] px-3 py-1 text-[12.6px] text-[var(--text-dim)]">
         <div className="status-dot" data-status={execution.status} />
         <span className="status-label" data-status={execution.status}>
           {execution.status}
         </span>
-        <span className="ml-auto text-[12px] text-[var(--text-dim)]">{metricsText}</span>
+        <span className="ml-auto text-[10.8px] text-[var(--text-dim)]">{metricsText}</span>
       </div>
 
       {isDirty ? (
-        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[rgba(206,145,120,0.08)] px-3 py-1 text-[12px] text-[var(--orange)]">
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[rgba(206,145,120,0.08)] px-3 py-1 text-[10.8px] text-[var(--orange)]">
           <AlertCircle size={14} strokeWidth={2} />
           <span>Source changed - next action will restart</span>
         </div>
@@ -373,7 +373,7 @@ export function DebugSidebar({
           {execution.input.tokens.length === 0 ? (
             <EmptyState>No stdin tokens</EmptyState>
           ) : (
-            <pre className="m-0 px-3 pb-3 pt-2 whitespace-pre-wrap break-all font-[var(--font-mono)] text-[14px] leading-[1.5] text-[var(--text)]">
+            <pre className="m-0 px-3 pb-3 pt-2 whitespace-pre-wrap break-all font-[var(--font-mono)] text-[12.6px] leading-[1.5] text-[var(--text)]">
               {inputDisplayParts
                 .filter((part) => part.tokenIndex >= execution.input.nextIndex)
                 .map((part, index) => (
@@ -392,10 +392,10 @@ export function DebugSidebar({
               {[...execution.callStack].reverse().map((frame, index) => (
                 <li
                   key={`${frame.functionName}-${frame.line}-${index}`}
-                  className={`flex cursor-default items-center gap-2 px-3 py-1 pl-5 text-[14px] hover:bg-[var(--hl-line)] ${index === 0 ? "text-[var(--yellow)]" : ""}`}
+                  className={`flex cursor-default items-center gap-2 px-3 py-1 pl-5 text-[12.6px] hover:bg-[var(--hl-line)] ${index === 0 ? "text-[var(--yellow)]" : ""}`}
                 >
                   <span className="flex-1 truncate">{frame.functionName}()</span>
-                  <span className="shrink-0 text-[12px] text-[var(--text-dim)]">:{frame.line}</span>
+                  <span className="shrink-0 text-[10.8px] text-[var(--text-dim)]">:{frame.line}</span>
                 </li>
               ))}
             </ul>
@@ -409,7 +409,7 @@ export function DebugSidebar({
           ) : (
             execution.localVars.map((scope, index) => (
               <div key={`${scope.name}-${index}`} className="py-0.5">
-                <div className="px-3 py-0.5 pl-4 text-[12px] italic text-[var(--text-dim)]">
+                <div className="px-3 py-0.5 pl-4 text-[10.8px] italic text-[var(--text-dim)]">
                   {getScopeTitle(scope, index)}
                 </div>
                 {scope.vars.map((variable) => (
@@ -448,7 +448,7 @@ export function DebugSidebar({
         {execution.error ? (
           <div className="border-b border-[var(--border)]">
             <SectionHeader label="Error" tone="error" />
-            <div className="break-all whitespace-pre-wrap px-3 py-2 font-[var(--font-mono)] text-[14px] text-[var(--red)]">
+            <div className="break-all whitespace-pre-wrap px-3 py-2 font-[var(--font-mono)] text-[12.6px] text-[var(--red)]">
               {execution.error.message}
             </div>
           </div>

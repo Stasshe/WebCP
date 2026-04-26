@@ -33,7 +33,7 @@
   --hl-line:     rgba(255,255,255,0.07);
   --font-ui:     'Segoe UI', system-ui, sans-serif;
   --font-mono:   'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-  font-size: 15px;
+  font-size: 10.5px;
 }
 
 @layer base {
