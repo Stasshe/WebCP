@@ -256,7 +256,15 @@ export function createPlaygroundEditorState({
       EditorView.clickAddsSelectionRange.of((event) => event.altKey),
       lineNumbers(),
       foldGutter(),
-      indentationMarkers(),
+      indentationMarkers({
+        thickness: 2,
+        activeThickness: 3,
+        markerType: "fullScope",
+        colors: {
+          dark: "rgba(160, 170, 190, 0.32)",
+          activeDark: "rgba(220, 230, 255, 0.72)",
+        },
+      }),
       highlightActiveLineGutter(),
       EditorView.lineWrapping,
       drawSelection(),
@@ -395,6 +403,9 @@ export const editorTheme = EditorView.theme({
   },
   ".cm-line": {
     padding: "0 12px",
+  },
+  ".cm-indent-markers::before": {
+    opacity: "1",
   },
   ".cm-activeLineGutter": {
     backgroundColor: "transparent",
