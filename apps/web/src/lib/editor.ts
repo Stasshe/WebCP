@@ -16,6 +16,7 @@ import {
 import type { CompletionSource } from "@codemirror/autocomplete";
 import { cpp } from "@codemirror/lang-cpp";
 import { bracketMatching, foldGutter, indentOnInput, indentUnit } from "@codemirror/language";
+import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import {
   gotoLine,
   highlightSelectionMatches,
@@ -255,6 +256,7 @@ export function createPlaygroundEditorState({
       EditorView.clickAddsSelectionRange.of((event) => event.altKey),
       lineNumbers(),
       foldGutter(),
+      indentationMarkers(),
       highlightActiveLineGutter(),
       EditorView.lineWrapping,
       drawSelection(),
