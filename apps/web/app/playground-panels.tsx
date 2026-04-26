@@ -15,6 +15,84 @@ import { useState } from "react";
 import type { DebugState } from "@/types";
 import { getArrayRef, getScopeTitle } from "./playground-state";
 
+const COLLAPSE_THRESHOLD = 6;
+
+function ArrayElementRow({
+  index,
+  value,
+  arraysByRef,
+  expandKey,
+  expandedArrays,
+  toggleExpand,
+  indent,
+}: {
+  index: number;
+  value: string;
+  arraysByRef: Map<number, { dynamic: boolean; values: string[] }>;
+  expandKey: string;
+  expandedArrays: Set<string>;
+  toggleExpand: (key: string) => void;
+  indent: number;
+}) {
+  const arrayRef = getArrayRef(value);
+  const arrayView = arrayRef === null ? null : (arraysByRef.get(arrayRef) ?? null);
+  const isExpanded = expandedArrays.has(expandKey);
+
+  return (
+    <div>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: role set conditionally */}
+      <div
+        className={`flex items-center gap-1 py-px font-[var(--font-mono)] text-[10px] hover:bg-[var(--hl-line)] ${arrayView ? "cursor-pointer" : ""}`}
+        style={{ paddingLeft: `${8 + indent * 12}px` }}
+        role={arrayView ? "button" : undefined}
+        tabIndex={arrayView ? 0 : undefined}
+        onClick={arrayView ? () => toggleExpand(expandKey) : undefined}
+        onKeyDown={
+          arrayView
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") toggleExpand(expandKey);
+              }
+            : undefined
+        }
+      >
+        {arrayView ? (
+          isExpanded ? (
+            <ChevronDown size={9} className="shrink-0 text-[var(--text-dim)]" />
+          ) : (
+            <ChevronRight size={9} className="shrink-0 text-[var(--text-dim)]" />
+          )
+        ) : (
+          <span className="w-[9px] shrink-0" />
+        )}
+        <span className="shrink-0 text-[var(--text-dim)]">[{index}]</span>
+        {arrayView ? (
+          <span className="text-[var(--purple)]">
+            {arrayView.dynamic ? "vector" : "array"}[{arrayView.values.length}]
+          </span>
+        ) : (
+          <span className="text-[var(--orange)]">{value}</span>
+        )}
+      </div>
+      {arrayView && isExpanded && (
+        <div className="max-h-[240px] overflow-y-auto [scrollbar-color:var(--border2)_transparent] [scrollbar-width:thin]">
+          {arrayView.values.map((val, i) => (
+            <ArrayElementRow
+              key={i}
+              index={i}
+              value={val}
+              arraysByRef={arraysByRef}
+              expandKey={`${expandKey}[${i}]`}
+              expandedArrays={expandedArrays}
+              toggleExpand={toggleExpand}
+              indent={indent + 1}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function DebugSidebar({
   execution,
   breakpoints,
@@ -54,8 +132,6 @@ export function DebugSidebar({
     });
   };
 
-  const COLLAPSE_THRESHOLD = 6;
-
   const renderVarRow = (v: { name: string; kind: string; value: string }, scopeKey: string) => {
     const arrayRef = v.kind === "array" ? getArrayRef(v.value) : null;
     const arrayView = arrayRef === null ? null : (arraysByRef.get(arrayRef) ?? null);
@@ -66,7 +142,6 @@ export function DebugSidebar({
     return (
       <div key={expandKey}>
         {/* biome-ignore lint/a11y/noStaticElementInteractions: role set conditionally via prop */}
-        {/* biome-ignore lint/a11y/useKeyWithClickEvents: onKeyDown provided when interactive */}
         <div
           className={`grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 px-2 py-px pl-5 font-[var(--font-mono)] text-[11px] hover:bg-[var(--hl-line)] ${needsExpand ? "cursor-pointer" : ""}`}
           role={needsExpand ? "button" : undefined}
@@ -106,16 +181,18 @@ export function DebugSidebar({
           </span>
         </div>
         {arrayView && needsExpand && isExpanded && (
-          <div className="ml-8 border-l border-[var(--border)] pl-2 pb-1">
+          <div className="border-l border-[var(--border)] ml-4 pb-1 max-h-[300px] overflow-y-auto [scrollbar-color:var(--border2)_transparent] [scrollbar-width:thin]">
             {arrayView.values.map((val, i) => (
-              <div
-                // biome-ignore lint/suspicious/noArrayIndexKey: array index is the display label
+              <ArrayElementRow
                 key={i}
-                className="grid grid-cols-[auto_1fr] gap-2 py-px font-[var(--font-mono)] text-[10px] hover:bg-[var(--hl-line)]"
-              >
-                <span className="text-[var(--text-dim)]">[{i}]</span>
-                <span className="text-[var(--orange)]">{val}</span>
-              </div>
+                index={i}
+                value={val}
+                arraysByRef={arraysByRef}
+                expandKey={`${expandKey}[${i}]`}
+                expandedArrays={expandedArrays}
+                toggleExpand={toggleExpand}
+                indent={0}
+              />
             ))}
           </div>
         )}
