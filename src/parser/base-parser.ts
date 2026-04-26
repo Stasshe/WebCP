@@ -23,6 +23,7 @@ import {
   pointerType,
   primitiveType,
   referenceType,
+  tupleType,
   vectorType,
 } from "../types";
 
@@ -578,6 +579,9 @@ export abstract class BaseParser {
     if (this.isPairTypeStart()) {
       return this.parsePairType();
     }
+    if (this.isTupleTypeStart()) {
+      return this.parseTupleType();
+    }
     return this.parsePrimitiveType();
   }
 
@@ -639,7 +643,12 @@ export abstract class BaseParser {
   }
 
   protected checkTypeStart(): boolean {
-    return this.peekPrimitiveTypeKeyword() || this.checkKeyword("vector") || this.isPairTypeStart();
+    return (
+      this.peekPrimitiveTypeKeyword() ||
+      this.checkKeyword("vector") ||
+      this.isPairTypeStart() ||
+      this.isTupleTypeStart()
+    );
   }
 
   protected consume(kind: Token["kind"], message: string): Token | null {
@@ -846,6 +855,9 @@ export abstract class BaseParser {
     if (type.kind === "PairType") {
       return this.isVoidTypeNode(type.firstType) || this.isVoidTypeNode(type.secondType);
     }
+    if (type.kind === "TupleType") {
+      return type.elementTypes.some((elementType) => this.isVoidTypeNode(elementType));
+    }
     return this.isVoidTypeNode(type.elementType);
   }
 
@@ -1023,6 +1035,17 @@ export abstract class BaseParser {
     );
   }
 
+  private isTupleTypeStart(): boolean {
+    const token = this.peek();
+    const next = this.tokens[this.index + 1];
+    return (
+      token.kind === "identifier" &&
+      token.text === "tuple" &&
+      next?.kind === "symbol" &&
+      next.text === "<"
+    );
+  }
+
   private parsePairType(): TypeNode | null {
     if (!(this.peek().kind === "identifier" && this.peek().text === "pair")) {
       this.errorAtCurrent("expected 'pair'");
@@ -1052,10 +1075,57 @@ export abstract class BaseParser {
     }
     return pairType(firstType, secondType);
   }
+
+  private parseTupleType(): TypeNode | null {
+    if (!(this.peek().kind === "identifier" && this.peek().text === "tuple")) {
+      this.errorAtCurrent("expected 'tuple'");
+      return null;
+    }
+    this.advance();
+    if (!this.consumeSymbol("<", "expected '<' after tuple")) {
+      return null;
+    }
+
+    const elementTypes: TypeNode[] = [];
+    while (true) {
+      const elementType = this.parseType();
+      if (elementType === null) {
+        return null;
+      }
+      if (this.isVoidTypeNode(elementType)) {
+        this.errorAtCurrent("tuple element type cannot be void");
+        return null;
+      }
+      elementTypes.push(elementType);
+
+      this.splitShiftCloseToken();
+      if (this.checkSymbol(">")) {
+        break;
+      }
+      if (!this.consumeSymbol(",", "expected ',' in tuple type")) {
+        return null;
+      }
+    }
+
+    if (elementTypes.length === 0) {
+      this.errorAtCurrent("tuple must have at least one element type");
+      return null;
+    }
+
+    if (!this.consumeTypeClose("expected '>' after tuple type")) {
+      return null;
+    }
+    return tupleType(elementTypes);
+  }
 }
 
 export function isAssignTarget(expr: ExprNode): expr is AssignTargetNode {
-  return expr.kind === "Identifier" || expr.kind === "IndexExpr" || expr.kind === "DerefExpr";
+  return (
+    expr.kind === "Identifier" ||
+    expr.kind === "IndexExpr" ||
+    expr.kind === "DerefExpr" ||
+    expr.kind === "TupleGetExpr"
+  );
 }
 
 export function tokensStart(tokens: Token[]): { line: number; col: number } {

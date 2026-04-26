@@ -501,6 +501,27 @@ function inferExprType(expr: ExprNode, context: ValidationContext): TypeNode | n
     }
     case "CallExpr":
       return validateCall(expr.callee, expr.args, expr.line, expr.col, context);
+    case "TupleGetExpr": {
+      const tupleType = inferExprType(expr.tuple, context);
+      if (tupleType === null) {
+        return null;
+      }
+      if (tupleType.kind !== "TupleType") {
+        pushError(context, expr.line, expr.col, "type mismatch: expected tuple");
+        return null;
+      }
+      const elementType = tupleType.elementTypes[expr.index];
+      if (elementType === undefined) {
+        pushError(
+          context,
+          expr.line,
+          expr.col,
+          `tuple index ${expr.index.toString()} out of range for tuple of size ${tupleType.elementTypes.length}`,
+        );
+        return null;
+      }
+      return elementType;
+    }
     case "MethodCallExpr":
       return validateMethodCall(
         expr.receiver,
@@ -571,6 +592,13 @@ function inferBinaryType(
       ) {
         pushError(context, expr.line, expr.col, "type mismatch in comparison");
       }
+      return { kind: "PrimitiveType", name: "bool" };
+    }
+    if (
+      (left !== null && (left.kind === "PairType" || left.kind === "TupleType")) ||
+      (right !== null && (right.kind === "PairType" || right.kind === "TupleType"))
+    ) {
+      pushError(context, expr.line, expr.col, "tuple/pair comparison is not supported");
       return { kind: "PrimitiveType", name: "bool" };
     }
     if (
@@ -729,6 +757,22 @@ function validateBuiltinCall(
       return null;
     }
     return { kind: "PairType", firstType, secondType };
+  }
+
+  if (callee === "make_tuple") {
+    if (args.length === 0) {
+      pushError(context, line, col, "make_tuple requires at least 1 argument");
+      return null;
+    }
+    const elementTypes: TypeNode[] = [];
+    for (const arg of args) {
+      const elementType = validateExpr(arg, context);
+      if (elementType === null) {
+        return null;
+      }
+      elementTypes.push(elementType);
+    }
+    return { kind: "TupleType", elementTypes };
   }
 
   if (callee === "sort" || callee === "reverse" || callee === "fill") {
@@ -999,6 +1043,38 @@ function resolveConditionalType(
     return { kind: "PairType", firstType, secondType };
   }
 
+  if (thenType.kind === "TupleType" && elseType.kind === "TupleType") {
+    if (thenType.elementTypes.length !== elseType.elementTypes.length) {
+      pushError(
+        context,
+        line,
+        col,
+        `incompatible operand types for ?: '${typeToString(thenType)}' and '${typeToString(elseType)}'`,
+      );
+      return null;
+    }
+    const elementTypes: TypeNode[] = [];
+    for (let i = 0; i < thenType.elementTypes.length; i += 1) {
+      const leftElement = thenType.elementTypes[i];
+      const rightElement = elseType.elementTypes[i];
+      if (leftElement === undefined || rightElement === undefined) {
+        return null;
+      }
+      const resolvedElementType = resolveConditionalType(
+        leftElement,
+        rightElement,
+        line,
+        col,
+        context,
+      );
+      if (resolvedElementType === null) {
+        return null;
+      }
+      elementTypes.push(resolvedElementType);
+    }
+    return { kind: "TupleType", elementTypes };
+  }
+
   if (isPointerType(thenType) && isNullPointerType(elseType)) {
     return thenType;
   }
@@ -1051,6 +1127,16 @@ function sameType(left: TypeNode, right: TypeNode): boolean {
         sameType(left.firstType, (right as Extract<TypeNode, { kind: "PairType" }>).firstType) &&
         sameType(left.secondType, (right as Extract<TypeNode, { kind: "PairType" }>).secondType)
       );
+    case "TupleType": {
+      const rightTuple = right as Extract<TypeNode, { kind: "TupleType" }>;
+      return (
+        left.elementTypes.length === rightTuple.elementTypes.length &&
+        left.elementTypes.every((elementType, index) => {
+          const rightElementType = rightTuple.elementTypes[index];
+          return rightElementType !== undefined && sameType(elementType, rightElementType);
+        })
+      );
+    }
     case "PointerType":
       return sameType(
         left.pointeeType,
@@ -1074,6 +1160,15 @@ function isAssignable(source: TypeNode, target: TypeNode): boolean {
       isAssignable(source.secondType, target.secondType)
     );
   }
+  if (source.kind === "TupleType" && target.kind === "TupleType") {
+    return (
+      source.elementTypes.length === target.elementTypes.length &&
+      source.elementTypes.every((elementType, index) => {
+        const targetElementType = target.elementTypes[index];
+        return targetElementType !== undefined && isAssignable(elementType, targetElementType);
+      })
+    );
+  }
   return (
     isPrimitiveType(source) &&
     isPrimitiveType(target) &&
@@ -1085,7 +1180,12 @@ function isAssignable(source: TypeNode, target: TypeNode): boolean {
 }
 
 function isAssignableExpr(expr: ExprNode): boolean {
-  return expr.kind === "Identifier" || expr.kind === "IndexExpr" || expr.kind === "DerefExpr";
+  return (
+    expr.kind === "Identifier" ||
+    expr.kind === "IndexExpr" ||
+    expr.kind === "DerefExpr" ||
+    expr.kind === "TupleGetExpr"
+  );
 }
 
 function isIntType(type: TypeNode): boolean {
@@ -1133,6 +1233,9 @@ function containsVoid(type: TypeNode): boolean {
   if (type.kind === "PairType") {
     return containsVoid(type.firstType) || containsVoid(type.secondType);
   }
+  if (type.kind === "TupleType") {
+    return type.elementTypes.some((elementType) => containsVoid(elementType));
+  }
   return containsVoid(type.elementType);
 }
 
@@ -1166,6 +1269,9 @@ function containsReferenceNested(type: TypeNode): boolean {
   }
   if (type.kind === "PairType") {
     return containsReferenceNested(type.firstType) || containsReferenceNested(type.secondType);
+  }
+  if (type.kind === "TupleType") {
+    return type.elementTypes.some((elementType) => containsReferenceNested(elementType));
   }
   if (type.kind === "ArrayType" || type.kind === "VectorType") {
     return containsReferenceNested(type.elementType);

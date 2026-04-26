@@ -5,6 +5,7 @@ import type {
   ConditionalExprNode,
   DerefExprNode,
   ExprNode,
+  TupleGetExprNode,
   UnaryExprNode,
 } from "../types";
 import { BaseParser, isAssignTarget } from "./base-parser";
@@ -301,6 +302,11 @@ export abstract class ExpressionParser extends BaseParser {
       return greaterComparator;
     }
 
+    const tupleGet = this.parseTupleGetExpr();
+    if (tupleGet !== null) {
+      return tupleGet;
+    }
+
     if (this.match("number")) {
       const t = this.previous();
       if (/[.eE]/.test(t.text)) {
@@ -364,6 +370,55 @@ export abstract class ExpressionParser extends BaseParser {
     }
 
     return null;
+  }
+
+  private parseTupleGetExpr(): ExprNode | null {
+    const token = this.peek();
+    const next = this.tokens[this.index + 1];
+    if (
+      token?.kind !== "identifier" ||
+      token.text !== "get" ||
+      next?.kind !== "symbol" ||
+      next.text !== "<"
+    ) {
+      return null;
+    }
+
+    this.advance();
+    const getToken = this.previous();
+    if (!this.consumeSymbol("<", "expected '<' after get")) {
+      return null;
+    }
+    const indexToken = this.consume("number", "expected tuple index in get");
+    if (indexToken === null) {
+      return null;
+    }
+    if (/[.eE]/.test(indexToken.text)) {
+      this.errorAt(indexToken, "tuple index must be an integer literal");
+      return null;
+    }
+    const index = Number(indexToken.text);
+    if (!Number.isSafeInteger(index) || index < 0) {
+      this.errorAt(indexToken, "tuple index must be a non-negative integer literal");
+      return null;
+    }
+    if (!this.consumeSymbol(">", "expected '>' after tuple index")) {
+      return null;
+    }
+    if (!this.consumeSymbol("(", "expected '(' after get<I>")) {
+      return null;
+    }
+    const tuple = this.parseExpression();
+    if (!this.consumeSymbol(")", "expected ')' after get argument")) {
+      return null;
+    }
+    const node: TupleGetExprNode = {
+      kind: "TupleGetExpr",
+      tuple,
+      index,
+      ...this.rangeFromNode(getToken, this.previous()),
+    };
+    return node;
   }
 
   private parseGreaterComparator(): ExprNode | null {

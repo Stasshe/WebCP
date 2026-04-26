@@ -175,4 +175,36 @@ int main() {
     expect(result.status).toBe("done");
     expect(result.output.stdout).toBe("9\n27\n");
   });
+
+  it("supports tuple return values and get access", () => {
+    const source = `
+tuple<int, string, int> solve(int x) {
+  return make_tuple(x + 1, "ok", x * 2);
+}
+
+int main() {
+  tuple<int, string, int> result = solve(3);
+  cout << get<0>(result) << " " << get<1>(result) << " " << get<2>(result) << "\\n";
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("4 ok 6\n");
+  });
+
+  it("allows assigning through get on tuple lvalues", () => {
+    const source = `
+int main() {
+  tuple<int, int> t = make_tuple(1, 2);
+  get<0>(t) = 10;
+  swap(get<0>(t), get<1>(t));
+  cout << get<0>(t) << " " << get<1>(t) << "\\n";
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("done");
+    expect(result.output.stdout).toBe("2 10\n");
+  });
 });

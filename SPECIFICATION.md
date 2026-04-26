@@ -19,12 +19,11 @@
 |---|---|
 | 動的メモリ（`malloc`, `new`, `free`, `delete`） | |
 | 構造体・クラス（`struct`, `class`） | |
-| テンプレート（`template<>`） | `vector<T>` と `pair<T,U>` の型構文のみ特別対応 |
+| テンプレート（`template<>`） | `vector<T>`、`pair<T,U>`、`tuple<T...>` の型構文のみ特別対応 |
 | 関数ポインタ | |
 | 名前空間（`namespace`） | `using namespace std;` のみ特別扱いで許可 |
 | プリプロセッサ | `#include <bits/stdc++.h>` と `#define` のみ対応 |
 | C / C++ キャスト構文（`(int)x`, `static_cast<>` 等） | |
-| 多重戻り値・タプル | |
 | 参照戻り値 | 参照変数・参照引数・range-for 束縛のみ対応 |
 
 ---
@@ -141,6 +140,26 @@ cout << p.first << " " << p.second << "\n";
 - `pair<T, U>` を型としてサポートする
 - 生成は `make_pair(a, b)` をサポートする
 - メンバーアクセスとして `p.first` と `p.second` をサポートする
+- 構造化束縛（`auto [x, y]`）は非対応
+
+### 3.7 `tuple` / 多重戻り値
+
+```cpp
+tuple<int, string, int> solve(int x) {
+    return make_tuple(x + 1, "ok", x * 2);
+}
+
+int main() {
+    tuple<int, string, int> t = solve(3);
+    cout << get<0>(t) << " " << get<1>(t) << " " << get<2>(t) << "\n";
+}
+```
+
+- `tuple<T1, T2, ...>` を型としてサポートする
+- 生成は `make_tuple(a, b, ...)` をサポートする
+- 要素アクセスは `get<I>(t)` をサポートする。`I` は 0 始まりの非負整数リテラル
+- `get<I>(t)` は lvalue として使える。代入や `swap` の対象にもできる
+- 関数の戻り値として `tuple<...>` を許可し、多重戻り値は tuple を返す形で表現する
 - 構造化束縛（`auto [x, y]`）は非対応
 
 ---

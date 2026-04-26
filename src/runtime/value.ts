@@ -2,6 +2,7 @@ import type {
   PairTypeNode,
   PrimitiveTypeNode,
   ReferenceTypeNode,
+  TupleTypeNode,
   TypeNode,
   VectorTypeNode,
 } from "../types";
@@ -9,6 +10,7 @@ import type {
 export type RuntimeLocation =
   | { kind: "binding"; scope: Map<string, RuntimeValue>; name: string; type: TypeNode }
   | { kind: "array"; ref: number; index: number; type: TypeNode }
+  | { kind: "tuple"; parent: RuntimeLocation; index: number; type: TypeNode }
   | { kind: "string"; parent: RuntimeLocation; index: number };
 
 export type RuntimeValue =
@@ -17,6 +19,7 @@ export type RuntimeValue =
   | { kind: "bool"; value: boolean }
   | { kind: "string"; value: string }
   | { kind: "pair"; type: PairTypeNode; first: RuntimeValue; second: RuntimeValue }
+  | { kind: "tuple"; type: TupleTypeNode; values: RuntimeValue[] }
   | { kind: "array"; ref: number; type: VectorTypeNode | Exclude<TypeNode, PrimitiveTypeNode> }
   | { kind: "pointer"; pointeeType: TypeNode; target: RuntimeLocation | null }
   | { kind: "reference"; type: ReferenceTypeNode; target: RuntimeLocation }
@@ -57,6 +60,8 @@ export function stringifyValue(value: RuntimeValue): string {
       return value.value;
     case "pair":
       return `(${stringifyValue(value.first)}, ${stringifyValue(value.second)})`;
+    case "tuple":
+      return `(${value.values.map((element) => stringifyValue(element)).join(", ")})`;
     case "void":
       return "";
     case "array":

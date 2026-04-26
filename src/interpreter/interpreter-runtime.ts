@@ -322,6 +322,13 @@ export abstract class InterpreterRuntime {
         second: this.defaultValueForType(type.secondType, line),
       };
     }
+    if (type.kind === "TupleType") {
+      return {
+        kind: "tuple",
+        type,
+        values: type.elementTypes.map((elementType) => this.defaultValueForType(elementType, line)),
+      };
+    }
     this.fail("fixed array value requires dimensions", line);
   }
 
@@ -455,6 +462,9 @@ export abstract class InterpreterRuntime {
     if (current.kind === "pair") {
       return this.assertType(current.type, value, line);
     }
+    if (current.kind === "tuple") {
+      return this.assertType(current.type, value, line);
+    }
     if (current.kind === "void") {
       this.fail("cannot assign to void", line);
     }
@@ -520,6 +530,28 @@ export abstract class InterpreterRuntime {
         type,
         first: this.assertType(type.firstType, value.first, line),
         second: this.assertType(type.secondType, value.second, line),
+      };
+    }
+
+    if (type.kind === "TupleType") {
+      if (value.kind === "uninitialized") {
+        return { kind: "uninitialized", expectedType: type };
+      }
+      if (value.kind !== "tuple") {
+        this.fail(`cannot convert '${value.kind}' to '${this.typeKindName(type)}'`, line);
+      }
+      if (value.values.length !== type.elementTypes.length) {
+        this.fail(
+          `cannot convert '${this.typeToRuntimeString(value.type)}' to '${this.typeToRuntimeString(type)}'`,
+          line,
+        );
+      }
+      return {
+        kind: "tuple",
+        type,
+        values: type.elementTypes.map((elementType, index) =>
+          this.assertType(elementType, value.values[index] as RuntimeValue, line),
+        ),
       };
     }
 
@@ -628,6 +660,8 @@ export abstract class InterpreterRuntime {
         return "vector";
       case "PairType":
         return "pair";
+      case "TupleType":
+        return "tuple";
       case "PointerType":
         return "pointer";
       case "ReferenceType":
@@ -668,6 +702,8 @@ export abstract class InterpreterRuntime {
         return `<uninitialized:${typeToString(value.expectedType)}>`;
       case "pair":
         return `(${this.serializeValue(value.first)}, ${this.serializeValue(value.second)})`;
+      case "tuple":
+        return `(${value.values.map((element) => this.serializeValue(element)).join(", ")})`;
       default:
         return stringifyValue(value);
     }
@@ -786,6 +822,15 @@ export abstract class InterpreterRuntime {
           this.sameType(left.firstType, right.firstType) &&
           this.sameType(left.secondType, right.secondType)
         );
+      case "TupleType":
+        return (
+          right.kind === "TupleType" &&
+          left.elementTypes.length === right.elementTypes.length &&
+          left.elementTypes.every((elementType, index) => {
+            const rightElementType = right.elementTypes[index];
+            return rightElementType !== undefined && this.sameType(elementType, rightElementType);
+          })
+        );
       case "ReferenceType":
         return (
           right.kind === "ReferenceType" && this.sameType(left.referredType, right.referredType)
@@ -823,6 +868,20 @@ export abstract class InterpreterRuntime {
         const value = store.values[location.index];
         if (value === undefined) {
           this.fail("invalid index access", line);
+        }
+        return value.kind === "reference" ? this.readLocation(value.target, line) : value;
+      }
+      case "tuple": {
+        const parent = this.readLocation(location.parent, line);
+        if (parent.kind !== "tuple") {
+          this.fail("type mismatch: expected tuple", line);
+        }
+        const value = parent.values[location.index];
+        if (value === undefined) {
+          this.fail(
+            `tuple index ${location.index.toString()} out of range for tuple of size ${parent.values.length}`,
+            line,
+          );
         }
         return value.kind === "reference" ? this.readLocation(value.target, line) : value;
       }
@@ -870,6 +929,30 @@ export abstract class InterpreterRuntime {
         store.values[location.index] = this.castToElementType(value, location.type, line);
         return;
       }
+      case "tuple": {
+        const current = this.readLocation(location.parent, line);
+        if (current.kind !== "tuple") {
+          this.fail("type mismatch: expected tuple", line);
+        }
+        if (location.index < 0 || location.index >= current.values.length) {
+          this.fail(
+            `tuple index ${location.index.toString()} out of range for tuple of size ${current.values.length}`,
+            line,
+          );
+        }
+        const nextValues = [...current.values];
+        nextValues[location.index] = this.assertType(location.type, value, line);
+        this.writeLocation(
+          location.parent,
+          {
+            kind: "tuple",
+            type: current.type,
+            values: nextValues,
+          },
+          line,
+        );
+        return;
+      }
       case "string": {
         const current = this.readLocation(location.parent, line);
         if (current.kind !== "string") {
@@ -900,6 +983,8 @@ export abstract class InterpreterRuntime {
       case "string":
         return { kind: "PrimitiveType", name: "string" };
       case "pair":
+        return value.type;
+      case "tuple":
         return value.type;
       case "array":
         return value.type;

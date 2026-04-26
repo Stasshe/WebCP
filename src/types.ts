@@ -21,6 +21,11 @@ export type PairTypeNode = {
   secondType: TypeNode;
 };
 
+export type TupleTypeNode = {
+  kind: "TupleType";
+  elementTypes: TypeNode[];
+};
+
 export type PointerTypeNode = {
   kind: "PointerType";
   pointeeType: TypeNode;
@@ -36,6 +41,7 @@ export type TypeNode =
   | ArrayTypeNode
   | VectorTypeNode
   | PairTypeNode
+  | TupleTypeNode
   | PointerTypeNode
   | ReferenceTypeNode;
 
@@ -199,12 +205,13 @@ export type ExprNode =
   | AddressOfExprNode
   | DerefExprNode
   | CallExprNode
+  | TupleGetExprNode
   | MethodCallExprNode
   | IndexExprNode
   | IdentifierExprNode
   | LiteralExprNode;
 
-export type AssignTargetNode = IdentifierExprNode | IndexExprNode | DerefExprNode;
+export type AssignTargetNode = IdentifierExprNode | IndexExprNode | DerefExprNode | TupleGetExprNode;
 
 export type AssignExprNode = NodeBase & {
   kind: "AssignExpr";
@@ -269,6 +276,12 @@ export type CallExprNode = NodeBase & {
   args: ExprNode[];
 };
 
+export type TupleGetExprNode = NodeBase & {
+  kind: "TupleGetExpr";
+  tuple: ExprNode;
+  index: number;
+};
+
 export type MethodCallExprNode = NodeBase & {
   kind: "MethodCallExpr";
   receiver: ExprNode;
@@ -327,6 +340,7 @@ export type DebugValueView = {
     | "bool"
     | "string"
     | "pair"
+    | "tuple"
     | "array"
     | "pointer"
     | "reference"
@@ -423,6 +437,10 @@ export function pairType(firstType: TypeNode, secondType: TypeNode): PairTypeNod
   return { kind: "PairType", firstType, secondType };
 }
 
+export function tupleType(elementTypes: TypeNode[]): TupleTypeNode {
+  return { kind: "TupleType", elementTypes };
+}
+
 export function pointerType(pointeeType: TypeNode): PointerTypeNode {
   return { kind: "PointerType", pointeeType };
 }
@@ -447,6 +465,10 @@ export function isPairType(type: TypeNode): type is PairTypeNode {
   return type.kind === "PairType";
 }
 
+export function isTupleType(type: TypeNode): type is TupleTypeNode {
+  return type.kind === "TupleType";
+}
+
 export function isPointerType(type: TypeNode): type is PointerTypeNode {
   return type.kind === "PointerType";
 }
@@ -465,6 +487,8 @@ export function typeToString(type: TypeNode): string {
       return `vector<${typeToString(type.elementType)}>`;
     case "PairType":
       return `pair<${typeToString(type.firstType)}, ${typeToString(type.secondType)}>`;
+    case "TupleType":
+      return `tuple<${type.elementTypes.map((elementType) => typeToString(elementType)).join(", ")}>`;
     case "PointerType":
       return `${typeToString(type.pointeeType)}*`;
     case "ReferenceType":

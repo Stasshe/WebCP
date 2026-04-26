@@ -276,4 +276,34 @@ int main() {
     }
     expect(result.errors[0]?.message).toMatch(/incompatible operand types for \?:/);
   });
+
+  it("rejects tuple get out of range", () => {
+    const source = `
+int main() {
+  tuple<int, int> t = make_tuple(1, 2);
+  return get<2>(t);
+}
+`;
+    const result = compile(source);
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected compile error");
+    }
+    expect(result.errors[0]?.message).toMatch(/tuple index 2 out of range/);
+  });
+
+  it("rejects make_tuple with no arguments", () => {
+    const source = `
+int main() {
+  make_tuple();
+  return 0;
+}
+`;
+    const result = compile(source);
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected compile error");
+    }
+    expect(result.errors[0]?.message).toMatch(/make_tuple requires at least 1 argument/);
+  });
 });

@@ -70,6 +70,8 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
         return this.evaluateMethodCall(expr.receiver, expr.method, expr.args, expr.line);
       case "IndexExpr":
         return this.getIndexedValue(expr.target, expr.index, expr.line);
+      case "TupleGetExpr":
+        return this.getTupleElementValue(expr.tuple, expr.index, expr.line);
       case "ConditionalExpr": {
         const condition = this.evaluateExpr(expr.condition);
         const selected = this.evaluateCondition(condition, expr.condition.line)
@@ -164,11 +166,18 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
         return this.resolveIndexedLocation(target.target, target.index, line);
       case "DerefExpr":
         return this.resolvePointerLocation(target.pointer, line);
+      case "TupleGetExpr":
+        return this.resolveTupleElementLocation(target.tuple, target.index, line);
     }
   }
 
   private isAssignableTarget(expr: ExprNode): expr is AssignTargetNode {
-    return expr.kind === "Identifier" || expr.kind === "IndexExpr" || expr.kind === "DerefExpr";
+    return (
+      expr.kind === "Identifier" ||
+      expr.kind === "IndexExpr" ||
+      expr.kind === "DerefExpr" ||
+      expr.kind === "TupleGetExpr"
+    );
   }
 
   private resolvePointerLocation(pointerExpr: ExprNode, line: number): RuntimeLocation {
@@ -222,6 +231,49 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
     };
   }
 
+  private resolveTupleElementLocation(
+    tupleExpr: ExprNode,
+    index: number,
+    line: number,
+  ): RuntimeLocation {
+    if (!this.isAssignableTarget(tupleExpr)) {
+      this.fail("tuple get target must be assignable", line);
+    }
+    const parent = this.resolveAssignTargetLocation(tupleExpr, line);
+    const tupleValue = this.readLocation(parent, line);
+    if (tupleValue.kind !== "tuple") {
+      this.fail("type mismatch: expected tuple", line);
+    }
+    const elementType = tupleValue.type.elementTypes[index];
+    if (elementType === undefined) {
+      this.fail(
+        `tuple index ${index.toString()} out of range for tuple of size ${tupleValue.values.length}`,
+        line,
+      );
+    }
+    return {
+      kind: "tuple",
+      parent,
+      index,
+      type: elementType,
+    };
+  }
+
+  private getTupleElementValue(tupleExpr: ExprNode, index: number, line: number): RuntimeValue {
+    const tupleValue = this.ensureInitialized(this.evaluateExpr(tupleExpr), line, "tuple");
+    if (tupleValue.kind !== "tuple") {
+      this.fail("type mismatch: expected tuple", line);
+    }
+    const elementValue = tupleValue.values[index];
+    if (elementValue === undefined) {
+      this.fail(
+        `tuple index ${index.toString()} out of range for tuple of size ${tupleValue.values.length}`,
+        line,
+      );
+    }
+    return this.ensureNotVoid(this.ensureInitialized(elementValue, line, "tuple element"), line);
+  }
+
   private tryEvaluateBuiltinCall(
     callee: string,
     args: ExprNode[],
@@ -256,8 +308,8 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
       if (
         left === undefined ||
         right === undefined ||
-        (left.kind !== "Identifier" && left.kind !== "IndexExpr") ||
-        (right.kind !== "Identifier" && right.kind !== "IndexExpr")
+        !this.isAssignableTarget(left) ||
+        !this.isAssignableTarget(right)
       ) {
         this.fail("swap arguments must be lvalues", line);
       }
@@ -294,6 +346,23 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
         },
         first: firstValue,
         second: secondValue,
+      };
+    }
+
+    if (callee === "make_tuple") {
+      if (args.length === 0) {
+        this.fail("make_tuple requires at least 1 argument", line);
+      }
+      const values = args.map((arg) =>
+        this.ensureNotVoid(this.ensureInitialized(this.evaluateExpr(arg), line, "value"), line),
+      );
+      return {
+        kind: "tuple",
+        type: {
+          kind: "TupleType",
+          elementTypes: values.map((value) => this.runtimeValueToType(value, line)),
+        },
+        values,
       };
     }
 
@@ -864,6 +933,8 @@ function compareValues(
       return fail("array comparison is not supported", line);
     case "pair":
       return fail("pair comparison is not supported", line);
+    case "tuple":
+      return fail("tuple comparison is not supported", line);
     case "reference":
       return fail("reference comparison is not supported", line);
   }
@@ -948,6 +1019,12 @@ function sameLocation(left: RuntimeLocation | null, right: RuntimeLocation | nul
       return right.kind === "binding" && left.scope === right.scope && left.name === right.name;
     case "array":
       return right.kind === "array" && left.ref === right.ref && left.index === right.index;
+    case "tuple":
+      return (
+        right.kind === "tuple" &&
+        left.index === right.index &&
+        sameLocation(left.parent, right.parent)
+      );
     case "string":
       return (
         right.kind === "string" &&
@@ -979,6 +1056,8 @@ function sameReceiver(left: ExprNode, right: ExprNode): boolean {
     case "AssignExpr":
       return false;
     case "ConditionalExpr":
+      return false;
+    case "TupleGetExpr":
       return false;
     case "AddressOfExpr":
       return false;
