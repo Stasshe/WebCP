@@ -1,66 +1,63 @@
 # Fluxa-WebCP
 
-A TypeScript interpreter and step-debugger for a competitive-programming-oriented C++ subset.
+> A step-debuggable interpreter for a competitive-programming subset of C++, written in TypeScript.
+
+[![npm](https://img.shields.io/npm/v/fluxa-webcp.svg)](https://www.npmjs.com/package/fluxa-webcp)
+[![license](https://img.shields.io/npm/l/fluxa-webcp.svg)](./LICENSE)
+[![types](https://img.shields.io/npm/types/fluxa-webcp.svg)](#)
+
+Fluxa-WebCP runs C++ source code in the browser or in Node.js, one AST node at a time.
+Every variable, every stack frame, every array cell is observable at every step — and
+the entire interpreter state is a plain JSON-serializable object.
+
+It is not a C++ compiler. It is a **teaching and debugging substrate** for the
+narrow slice of C++ that competitive programmers actually write.
 
 ![Playground screenshot](readme-assets/web-app-screenshot1.png)
 
 ---
 
-## What it is
+## Why Fluxa-WebCP
 
-**Fluxa-WebCP** parses and executes a carefully scoped subset of C++, with a first-class step-execution API.  
-The primary use case is learning and debugging competitive programming solutions — not general C++ execution.
+Online judges show you a verdict. Wandbox and Compiler Explorer show you the
+final stdout. Neither lets you watch a `dp` array fill in row by row, or
+inspect the call stack inside a recursive `dfs`.
 
-Key design choices:
+Fluxa-WebCP is built around three commitments:
 
-- **No undefined behavior.** Dynamic memory, raw pointer arithmetic beyond arrays, and uninitialized reads all produce explicit runtime errors.
-- **Step granularity is one AST node.** Variables, call stack, and array contents are fully inspectable at every point of execution.
-- **Error messages follow GCC/Clang format.** Students can transfer to a real compiler without relearning error reading.
-- **All interpreter state is serializable.** Enables UI integration, time-travel debugging, and future reverse-execution.
+- **Step granularity is one AST node.** Not one line — one node. You can stop
+  in the middle of `a[i] = f(j) + g(k)` and inspect both subexpressions
+  independently.
+- **No undefined behavior, ever.** Out-of-range array access, uninitialized
+  reads, null-pointer deref, integer division by zero — all become explicit,
+  recoverable runtime errors with a stack trace. The interpreter never throws.
+- **State is data, not a process.** `InterpreterState` is a serializable
+  object. You can JSON-stringify it, diff two snapshots, persist a session,
+  or send it across a worker boundary.
 
----
-
-## Packages
-
-```
-.
-├── src/          # fluxa-webcp — interpreter core (npm package)
-└── apps/web/     # Next.js playground (web app)
-```
-
----
-
-## Language coverage
-
-The supported language is intentionally narrow. A full spec lives in [`SPECIFICATION.md`](./SPECIFICATION.md).
-
-**Types:** `int` / `long long` (identical internally, 64-bit), `bool`, `string`, `T*`, `T&`, fixed-length arrays, `vector<T>`, `pair<T,U>`, `tuple<T...>`
-
-**Control flow:** `if`/`else`, `for`, range-based `for`, `while`, `break`, `continue`, `return`
-
-**Functions:** user-defined functions with value / reference / pointer parameters, recursion (up to 10,000 frames)
-
-**I/O:** `cin`, `cout`, `cerr`, `endl`
-
-**Builtins:** `abs`, `max`, `min`, `swap`, `sort` (with `greater<int>()`), `reverse`, `fill`
-
-**Preprocessor:** `#include <bits/stdc++.h>` and `#define` only
-
-**Not supported:** `malloc`/`new`/`free`, `struct`/`class`, templates (user-defined), function pointers, namespaces (except `using namespace std;`), C-style or `static_cast` casts, reference return values.
+These properties make the same engine usable as a CLI runner, a step
+debugger, a teaching tool, and a backend for time-travel debugging UIs.
 
 ---
 
-## Interpreter core (`src/`)
-
-### Install
+## Install
 
 ```bash
+npm install fluxa-webcp
+# or
 pnpm add fluxa-webcp
 # or
-npm install fluxa-webcp
+yarn add fluxa-webcp
 ```
 
-### Basic usage
+Requires Node.js 20+. Zero runtime dependencies. Ships ESM and CJS bundles
+plus `.d.ts` types.
+
+---
+
+## Quick start
+
+### Run a program
 
 ```typescript
 import { Compiler } from "fluxa-webcp";
@@ -77,48 +74,109 @@ int main() {
 }
 `;
 
-const compiler = new Compiler();
-const result = compiler.compile(source);
-
+const result = new Compiler().compile(source);
 if (result.kind === "error") {
-  console.error(result.diagnostics);
-} else {
-  const session = result.session;
-  session.provideInput("7\n");
-  session.run();
-  console.log(session.state.output); // "49\n"
+  for (const d of result.diagnostics) console.error(d.formatted);
+  process.exit(1);
 }
+
+const session = result.session;
+session.provideInput("7\n");
+session.run();
+
+console.log(session.state.output);  // => "49\n"
+console.log(session.state.status);  // => "done"
 ```
 
-### Step execution
+### Step through a program
 
 ```typescript
 const session = result.session;
 session.provideInput("5\n");
 
-// Step one AST node at a time
-while (session.state.status === "running" || session.state.status === "paused") {
+while (session.state.status !== "done" && session.state.status !== "error") {
   session.stepInto();
   const info = session.debugInfo();
-  console.log(`line ${info.currentLine}`, info.localVars);
+  console.log(`line ${info.currentLine}`, info.localVars.at(-1));
 }
 ```
 
-### Debugger API
+Each call to `stepInto()` advances the interpreter by one AST node and
+returns control. `debugInfo()` exposes the full observable state — call
+stack, scoped locals, globals, all live arrays and vectors, the input
+cursor, and the source range currently being evaluated.
+
+### Set breakpoints
+
+```typescript
+session.setBreakpoint(12);
+session.run();          // pauses at line 12
+console.log(session.debugInfo().pauseReason);  // => "breakpoint"
+session.run();          // continues
+```
+
+---
+
+## What's supported
+
+A precise specification lives in [`SPECIFICATION.md`](./SPECIFICATION.md).
+Briefly:
+
+- **Types** — `int` / `long long` (both 64-bit `BigInt` internally), `double`,
+  `bool`, `string`, fixed-length arrays, `vector<T>`, `pair<T,U>`,
+  `tuple<T...>`, `T*`, `T&`.
+- **Control flow** — `if`/`else`, `for`, range-based `for`, `while`,
+  `break`, `continue`, `return`.
+- **Functions** — value, reference, and pointer parameters; recursion;
+  global variables.
+- **I/O** — `cin`, `cout`, `cerr`, `endl`. Common `sync_with_stdio` /
+  `tie` incantations are accepted as no-ops.
+- **Standard library** — `abs`, `max`, `min`, `swap`, `sort` (with
+  `greater<int>()`), `reverse`, `fill`, `make_pair`, `make_tuple`,
+  `get<I>`.
+- **Preprocessor** — `#include <bits/stdc++.h>` and `#define` only.
+
+### Non-goals
+
+The following are **deliberately** unsupported, and are surfaced as
+compile errors rather than ignored:
+
+- Dynamic memory: `new`, `delete`, `malloc`, `free`
+- User-defined `struct`, `class`, or templates
+- Function pointers, namespaces (other than `using namespace std;`)
+- C-style and `static_cast` casts
+- Reference return values
+
+If you need any of these, you need a real compiler — Fluxa-WebCP will
+tell you so explicitly.
+
+### Limits
+
+| Resource | Default | Configurable |
+| --- | --- | --- |
+| Recursion depth | 10,000 frames | no |
+| Execution steps | 10,000,000 | yes (UI control) |
+
+Both are enforced as graceful runtime errors, not crashes.
+
+---
+
+## Debugger API
+
+The `DebugSession` returned by a successful compile exposes:
 
 | Method | Behavior |
-|---|---|
-| `stepInto()` | Advance one AST node; enter function calls |
-| `stepOver()` | Advance one statement; execute calls without entering |
-| `stepOut()` | Run to end of current function, return to caller |
-| `run()` | Execute until next breakpoint or termination |
-| `pause()` | Suspend execution |
-| `setBreakpoint(line)` | Set a line breakpoint |
-| `clearBreakpoint(line)` | Remove a line breakpoint |
+| --- | --- |
+| `stepInto()` | Advance one AST node; descend into calls. |
+| `stepOver()` | Advance one statement; treat calls as atomic. |
+| `stepOut()` | Run until the current frame returns. |
+| `run()` | Run until breakpoint, completion, or error. |
+| `pause()` | Suspend a running session. |
+| `setBreakpoint(line)` / `clearBreakpoint(line)` | Manage line breakpoints. |
+| `provideInput(s)` | Append to the stdin buffer. |
+| `debugInfo()` | Snapshot the full observable state. |
 
-### Interpreter state
-
-All state is a plain serializable object — safe to JSON-stringify, store, or diff:
+`session.state` is a `InterpreterState`:
 
 ```typescript
 type InterpreterState = {
@@ -131,141 +189,23 @@ type InterpreterState = {
 };
 ```
 
----
-
-## Playground (`apps/web/`)
-
-The web playground is a Next.js app that wraps the interpreter with a Monaco-based editor and a live debug panel.
-
-### Features
-
-- Syntax-highlighted C++ editor (Monaco)
-- Left panel: call stack, current scope variables with live values, step counter
-- Right panel: code view with current-line highlight and execution arrow
-- STDIN input, STDOUT / STDERR output panes
-- Step Into / Step Over / Step Out / Run / Pause controls
-- Breakpoint toggle by clicking the gutter
-
-### Run locally
-
-```bash
-pnpm install
-pnpm --filter web dev
-```
-
-Open `http://localhost:3000`.
-
-### Build
-
-```bash
-pnpm --filter web build
-```
+This object is plain data. `JSON.stringify(session.state)` works. Storing
+snapshots, diffing them, or shipping them to another process all work
+without ceremony.
 
 ---
 
-## Development
+## Errors
 
-### Prerequisites
-
-- Node.js 20+
-- pnpm 9+
-
-### Setup
-
-```bash
-pnpm install
-```
-
-### Test
-
-```bash
-pnpm test          # run all tests once
-pnpm test --watch  # watch mode
-```
-
-Tests live in `tests/` and use Vitest. Filenames reflect the feature area:
+**Compile errors** follow GCC/Clang format, so what you learn here
+transfers directly to a real toolchain:
 
 ```
-tests/
-├── 01-basics.test.ts
-├── 02-control-flow.test.ts
-├── 03-functions.test.ts
-├── 04-arrays.test.ts
-├── 05-vectors.test.ts
-├── 06-errors.test.ts
-├── 07-edge-cases.test.ts
-├── 08-debug.test.ts
-├── 09-semantics-and-builtins.test.ts
-└── 10-pointers-and-references.test.ts
+main.cpp:7:14: error: 'x' was not declared in this scope
 ```
 
-### Lint / Format
-
-```bash
-pnpm biome check --write
-```
-
-No `// @ts-ignore` or `// biome-ignore` without a written justification comment.
-
-### Build the core package
-
-```bash
-pnpm build   # Rollup → dist/
-```
-
----
-
-## Architecture
-
-```
-parser  ──────────────────────────────────────────►  (no deps)
-runtime ──────────────────────────────────────────►  (no deps)
-interpreter  ──────────────────────────────────►  parser, runtime
-debugger  ────────────────────────────────────►  interpreter, runtime
-index.ts  ───────────────────────────────────►  all of the above
-```
-
-Circular dependencies are forbidden. `parser` and `runtime` are mutually unaware.
-
-### Source layout
-
-```
-src/
-├── index.ts               # public API
-├── compiler.ts            # parse → validate → session
-├── preprocessor.ts        # #include / #define expansion
-├── types.ts               # shared AST + type definitions
-├── parser/
-│   ├── lexer.ts
-│   ├── expression.ts
-│   ├── index.ts
-│   └── base/              # low-level parse helpers, split by responsibility
-├── runtime/
-│   ├── value.ts           # Value union type
-│   └── errors.ts          # RuntimeError, CompileError
-├── interpreter/
-│   ├── index.ts
-│   ├── evaluator.ts
-│   └── runtime/           # execution engine, split by responsibility
-├── semantic/
-│   └── validator.ts
-└── debugger/
-    └── session.ts         # DebugSession wrapping interpreter + breakpoints
-```
-
-Files are kept under 800 lines. When a file approaches that, it is split by _responsibility_, not line count.
-
----
-
-## Error handling
-
-**Compile errors** are returned as structured diagnostics in GCC/Clang format:
-
-```
-<file>:<line>:<col>: error: <message>
-```
-
-**Runtime errors** include a stack trace:
+**Runtime errors** carry a one-frame stack trace and a structured
+representation:
 
 ```
 Runtime Error: index 10 out of range for array of size 5
@@ -273,21 +213,73 @@ Runtime Error: index 10 out of range for array of size 5
   at main:41
 ```
 
-The interpreter never throws. All error state is communicated through `InterpreterState.status` and `InterpreterState.error`.
+The interpreter never throws on user-program errors. They surface
+through `state.status === "error"` and `state.error`.
 
 ---
 
-## Limits
+## Playground
 
-| Resource | Default | Configurable |
-|---|---|---|
-| Recursion depth | 10,000 frames | No |
-| Execution steps | 10,000,000 | Yes (UI slider) |
+A Next.js playground in [`apps/web/`](./apps/web/) wraps the interpreter
+with a Monaco editor, gutter breakpoints, a live variables/call-stack
+panel, and step controls.
 
-Exceeding either limit raises a `Runtime Error` and halts execution gracefully.
+```bash
+pnpm install
+pnpm --filter web dev    # http://localhost:3000
+pnpm --filter web build  # production build
+```
+
+---
+
+## Project layout
+
+```
+.
+├── src/                    # fluxa-webcp — interpreter core (the published package)
+│   ├── index.ts            # public API
+│   ├── compiler.ts         # parse → validate → session
+│   ├── preprocessor.ts
+│   ├── parser/
+│   ├── runtime/            # Value union, RuntimeError, CompileError
+│   ├── interpreter/        # evaluator and execution engine
+│   ├── semantic/validator.ts
+│   └── debugger/session.ts
+├── apps/web/               # Next.js playground
+└── tests/                  # Vitest, organized by feature
+```
+
+Internal dependency rules:
+
+- `parser` and `runtime` have no internal dependencies and no awareness
+  of each other.
+- `interpreter` depends on `parser` and `runtime`.
+- `debugger` depends on `interpreter` and `runtime`.
+- Cycles are forbidden.
+- Files stay under 800 lines; oversized files are split by responsibility,
+  not by line count.
+
+---
+
+## Development
+
+```bash
+pnpm install
+pnpm test               # run all tests
+pnpm test --watch
+pnpm build              # build the core package via Rollup
+pnpm biome check --write
+```
+
+Tests are organized by feature area in `tests/`, from `01-basics.test.ts`
+through `10-pointers-and-references.test.ts`. New language features land
+with their own test file.
+
+`@ts-ignore` and `biome-ignore` are not used without an inline
+justification comment.
 
 ---
 
 ## License
 
-MIT
+MIT. See [`LICENSE`](./LICENSE).
