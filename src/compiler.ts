@@ -1,3 +1,9 @@
+import {
+  createCompileErrorInfo,
+  DEFAULT_SOURCE_FILENAME,
+  formatCompileErrors,
+  formatRuntimeError,
+} from "@/diagnostics";
 import { runProgram } from "@/interpreter";
 import { lex } from "@/parser/lexer";
 import { parse } from "@/parser";
@@ -28,35 +34,23 @@ export function compile(source: string): CompileResult {
   return parsed;
 }
 
-export function formatCompileErrors(filename: string, errors: CompileError[]): string {
-  return errors
-    .map((error) => `${filename}:${error.line}:${error.col}: error: ${error.message}`)
-    .join("\n");
-}
-
 export function runCompiled(program: ProgramNode, input = ""): RunResult {
   return runProgram(program, input);
 }
 
-export function formatRuntimeError(
-  errorMessage: string,
-  functionName: string,
-  line: number,
-): string {
-  return `Runtime Error: ${errorMessage}\n  at ${functionName}:${line}`;
-}
+export { formatCompileErrors, formatRuntimeError };
 
-export function compileAndRun(source: string, input = "", filename = "<input>"): RunResult {
+export function compileAndRun(
+  source: string,
+  input = "",
+  filename = DEFAULT_SOURCE_FILENAME,
+): RunResult {
   const compiled = compile(source);
   if (!compiled.ok) {
     return {
       status: "error",
       output: { stdout: "", stderr: "" },
-      error: {
-        message: formatCompileErrors(filename, compiled.errors),
-        line: compiled.errors[0]?.line ?? 1,
-        functionName: "<compile>",
-      },
+      error: createCompileErrorInfo(compiled.errors, filename),
       debugInfo: {
         currentLine: compiled.errors[0]?.line ?? 1,
         callStack: [],
@@ -77,18 +71,5 @@ export function compileAndRun(source: string, input = "", filename = "<input>"):
     };
   }
   const runResult = runCompiled(compiled.program, input);
-  if (runResult.error !== null) {
-    return {
-      ...runResult,
-      error: {
-        ...runResult.error,
-        message: formatRuntimeError(
-          runResult.error.message,
-          runResult.error.functionName,
-          runResult.error.line,
-        ),
-      },
-    };
-  }
   return runResult;
 }

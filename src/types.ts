@@ -317,10 +317,19 @@ export type CompileError = SourceLocation & {
   message: string;
 };
 
+export type RuntimeStackFrame = {
+  functionName: string;
+  line: number;
+};
+
 export type RuntimeErrorInfo = {
   message: string;
+  summary: string;
   line: number;
+  col: number | null;
   functionName: string;
+  filename: string | null;
+  stack: RuntimeStackFrame[];
 };
 
 export type CompileResult =

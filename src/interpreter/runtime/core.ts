@@ -350,7 +350,16 @@ export abstract class InterpreterRuntimeCore {
   }
 
   protected fail(message: string, line: number): never {
-    throw new RuntimeTrap(message, this.currentFunction, line);
+    const stackFrames =
+      this.frameStack.length > 0
+        ? [...this.frameStack]
+            .map((frame, index, frames) => ({
+              functionName: frame.functionName,
+              line: index === frames.length - 1 ? line : frame.line,
+            }))
+            .reverse()
+        : [{ functionName: this.currentFunction, line }];
+    throw new RuntimeTrap(message, stackFrames);
   }
 
   protected expectPrimitiveType(

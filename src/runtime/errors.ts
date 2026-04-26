@@ -1,3 +1,4 @@
+import type { RuntimeStackFrame } from "@/types";
 import type { RuntimeValue } from "./value";
 
 export class RuntimeTrap extends Error {
@@ -5,10 +6,14 @@ export class RuntimeTrap extends Error {
 
   readonly functionName: string;
 
-  constructor(message: string, functionName: string, line: number) {
+  readonly stackFrames: RuntimeStackFrame[];
+
+  constructor(message: string, stackFrames: RuntimeStackFrame[]) {
     super(message);
-    this.line = line;
-    this.functionName = functionName;
+    this.stackFrames = stackFrames.length > 0 ? stackFrames : [{ functionName: "<runtime>", line: 1 }];
+    const topFrame = this.stackFrames[0] as RuntimeStackFrame;
+    this.line = topFrame.line;
+    this.functionName = topFrame.functionName;
   }
 }
 

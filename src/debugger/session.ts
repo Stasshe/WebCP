@@ -1,4 +1,5 @@
-import { compile, formatCompileErrors } from "@/compiler";
+import { compile } from "@/compiler";
+import { createCompileErrorInfo, DEFAULT_SOURCE_FILENAME } from "@/diagnostics";
 import { buildDebugState, runProgram } from "@/interpreter";
 import type { DebugState, RunResult } from "@/types";
 
@@ -92,11 +93,7 @@ export class DebugSession {
         currentLine: compiled.errors[0]?.line ?? 1,
         callStack: [],
         output: { stdout: "", stderr: "" },
-        error: {
-          message: formatCompileErrors("<input>", compiled.errors),
-          line: compiled.errors[0]?.line ?? 1,
-          functionName: "<compile>",
-        },
+        error: createCompileErrorInfo(compiled.errors, DEFAULT_SOURCE_FILENAME),
         localVars: [],
         globalVars: [],
         arrays: [],

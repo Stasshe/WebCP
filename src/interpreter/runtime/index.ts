@@ -1,5 +1,6 @@
 import type { RuntimeTrap } from "@/runtime/errors";
 import type { RuntimeValue } from "@/runtime/value";
+import { toRuntimeErrorInfo } from "@/diagnostics";
 import type {
   DebugExecutionRange,
   DebugInfo,
@@ -22,11 +23,7 @@ export { PauseTrap } from "./core";
 export abstract class InterpreterRuntime extends InterpreterRuntimeSupport {}
 
 export function toRuntimeError(error: RuntimeTrap): RuntimeErrorInfo {
-  return {
-    message: error.message,
-    line: error.line,
-    functionName: error.functionName,
-  };
+  return toRuntimeErrorInfo(error);
 }
 
 export function buildDebugInfoView(

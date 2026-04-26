@@ -160,4 +160,45 @@ int main() {
     expect(result.status).toBe("error");
     expect(result.error?.message).toMatch(/not within a loop/);
   });
+
+  it("compile errors use main.cpp GCC-style formatting by default", () => {
+    const source = `
+int main() {
+  cout << x << "\\n";
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("error");
+    expect(result.error?.message).toMatch(/^main\.cpp:\d+:\d+: error: /);
+    expect(result.error?.summary).toMatch(/was not declared in this scope/);
+    expect(result.error?.filename).toBe("main.cpp");
+    expect(result.error?.stack).toEqual([]);
+  });
+
+  it("runtime errors include a structured stack trace", () => {
+    const source = `
+void crash() {
+  int a[1];
+  cout << a[2] << "\\n";
+}
+
+void dfs() {
+  crash();
+}
+
+int main() {
+  dfs();
+  return 0;
+}
+`;
+    const result = compileAndRun(source);
+    expect(result.status).toBe("error");
+    expect(result.error?.message).toMatch(/Runtime Error: index 2 out of range for array of size 1/);
+    expect(result.error?.message).toMatch(/at crash:/);
+    expect(result.error?.message).toMatch(/at dfs:/);
+    expect(result.error?.message).toMatch(/at main:/);
+    expect(result.error?.summary).toBe("index 2 out of range for array of size 1");
+    expect(result.error?.stack.map((frame) => frame.functionName)).toEqual(["crash", "dfs", "main"]);
+  });
 });

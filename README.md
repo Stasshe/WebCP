@@ -204,7 +204,7 @@ transfers directly to a real toolchain:
 main.cpp:7:14: error: 'x' was not declared in this scope
 ```
 
-**Runtime errors** carry a one-frame stack trace and a structured
+**Runtime errors** carry a stack trace and a structured
 representation:
 
 ```
@@ -215,6 +215,9 @@ Runtime Error: index 10 out of range for array of size 5
 
 The interpreter never throws on user-program errors. They surface
 through `state.status === "error"` and `state.error`.
+
+`state.error` includes both a formatted `message` and structured fields
+such as `summary`, `filename`, and `stack`.
 
 ---
 
