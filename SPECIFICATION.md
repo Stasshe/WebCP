@@ -34,15 +34,18 @@
 
 | 型名 | 内部表現 | 備考 |
 |---|---|---|
-| `int` | JS `BigInt`（64bit符号付き） | `long long` と同一 |
-| `long long` | JS `BigInt`（64bit符号付き） | `int` と同一として扱う |
+| `int` | JS `BigInt` | `long long` と同一 |
+| `long long` | JS `BigInt` | `int` と同一として扱う |
+| `double` | JS `number` | 浮動小数点 |
 | `bool` | JS `boolean` | `true` / `false` リテラル |
 | `string` | JS `string` | cin/cout での入出力に使用 |
 
-- `int` と `long long` は同一の内部型。明示的な型名の違いはコンパイル時に許容する
-- `bool` と `int` の間の暗黙変換は行わない。`true` を `int` として使う場合は `(int)true` の代わりに `1` と書く（キャスト非対応のため）
+- `int` と `long long` は同一の内部型として扱う。オーバーフロー検査や 64bit 範囲制約は行わない
+- `int` / `long long` と `double` の間では数値演算・代入・引数受け渡し・三項演算子の共通型解決で暗黙変換を許可する
+- `double` から `int` / `long long` への変換は、値が有限かつ整数値のときのみ実行時に成功する。非整数や `NaN` / `Infinity` は実行時エラー
+- `bool` と数値型の間の一般的な暗黙変換は行わない。ただし `if` / `while` / `for` / 三項演算子の条件式では `bool`、`int`、`long long`、`double` を受理する
 - `string` に対して使える演算は `+`（連結）、`==`、`!=`、`<`、`<=`、`>`、`>=`（辞書順比較）のみ
-- `string` は `s[i]` で 1 文字の `string` として読み書きできる
+- `string` は `s[i]` で長さ 1 の `string` として読み書きできる
 
 ### 3.2 ポインタ型と参照型
 
@@ -104,7 +107,7 @@ vector<vector<int>> g;    // ネスト vector も可
 | `v.empty()` | 空かどうか（`bool`） |
 | `v.clear()` | 全要素削除 |
 | `v[i]` | 添字アクセス（範囲外は実行時エラー） |
-| `v.resize(n)` | リサイズ（縮小時は切り捨て、拡大時はゼロ埋め） |
+| `v.resize(n)` | リサイズ（縮小時は切り捨て、拡大時は型ごとの既定値で埋める） |
 
 ### 3.4 配列・vector の関数渡し
 
@@ -226,12 +229,18 @@ int main() {
 | `\|` | bit OR | `int` 同士のみ |
 | `~` | bit NOT | 単項演算子 |
 
+- 数値演算は `int` / `long long` 同士、`double` 同士、または両者の混在を受理する
+- `/` は `double` を含む場合は浮動小数除算、整数同士の場合は `BigInt` による整数除算
+- `%` は現在の実装では `double` に対しても JS `%` 相当で動作する
+- bit 演算・シフト演算は `int` / `long long` のみ対応
+
 ### 5.2 比較演算子
 
 `==`、`!=`、`<`、`<=`、`>`、`>=`
 
-- `int`、`bool`、`string` に対して使用可能
+- `int` / `long long` / `double` / `bool` / `string` / pointer に対して使用可能
 - 結果は `bool`
+- `pair` と `tuple` の比較は未対応で、コンパイルエラー
 
 ### 5.3 論理演算子
 
@@ -240,6 +249,8 @@ int main() {
 | `&&` | 論理AND（短絡評価） |
 | `\|\|` | 論理OR（短絡評価） |
 | `!` | 論理NOT |
+
+- `&&` / `||` / `!` のオペランドは `bool` のみ対応
 
 ### 5.4 代入演算子
 
@@ -264,7 +275,7 @@ int x = cond ? a : b;
 ```
 
 - `cond ? expr1 : expr2` をサポートする
-- 条件式は `if` / `while` と同様に `bool` または数値型を取れる
+- 条件式は `if` / `while` と同様に `bool`、`int`、`long long`、`double` を取れる
 - `cond` は短絡評価され、選ばれた側の式だけを実行する
 - 結果型は両分岐の共通型になる。少なくとも同一型、数値同士、`pointer` と `0`、`pair` 同士、`tuple` 同士をサポートする
 
@@ -285,7 +296,8 @@ C++ の標準的な優先順位に準拠する。高い順に：
 10. bit OR: |
 11. 論理AND: &&
 12. 論理OR: ||
-13. 代入: = += -= *= /= %=
+13. 三項: ?:
+14. 代入: = += -= *= /= %=
 ```
 
 ---
@@ -306,7 +318,7 @@ if (expr) block else if (expr) block else block
 for (init; cond; update) block
 ```
 
-- `init`：変数宣言（`int i = 0`）またはassign式（`i = 0`）または空
+- `init`：変数宣言、複数宣言、代入式、または空
 - `cond`：任意の式。省略時は `true` として扱う
 - `update`：代入式またはインクリメント/デクリメント式（`i++`、`i += 2` 等）。セミコロンは不要
 
@@ -347,7 +359,7 @@ return expr;      // 非 void 関数
 ```
 
 - `void` 関数で `return expr;` はコンパイルエラー
-- 非 `void` 関数の末尾到達時は型ごとのデフォルト値を返す（`int` は `0`、pointer は null など）
+- 非 `void` 関数の末尾到達時は型ごとの既定値を返す（`int` は `0`、`double` は `0.0`、pointer は null、`pair` / `tuple` は要素ごとの既定値など）
 
 ---
 
@@ -359,7 +371,7 @@ return expr;      // 非 void 関数
 return_type name(param_list) block
 ```
 
-- `return_type`：`int`、`long long`、`bool`、`string`、`void`、`vector<T>`、`pair<T,U>`、`tuple<T...>`、`T*`
+- `return_type`：`int`、`long long`、`double`、`bool`、`string`、`void`、`vector<T>`、`pair<T,U>`、`tuple<T...>`、`T*`
 - `param_list`：カンマ区切りの `type name` のリスト（空も可）
 - 引数は値渡し（配列・vector を除く。§3.4 参照）
 - 参照引数（`T&`）をサポートする。呼び出し側は lvalue を渡す必要がある
@@ -382,7 +394,7 @@ int g = gcd(a, b);
 
 ### 7.3 再帰
 
-許可。スタック深さの上限は実装依存（デフォルト 10,000 フレームを推奨）。超過時は実行時エラー。
+許可。明示的な再帰深さ制限は現在の実装には入っておらず、深すぎる再帰はホスト環境依存の失敗になりうる。
 
 ### 7.4 エントリーポイント
 
@@ -411,10 +423,12 @@ cin >> s;          // string（空白区切りで1トークン）
 ```
 
 - `int`、`long long`、`bool`、`string` 型変数への入力に対応
+- `double` 型変数への入力にも対応
+- `bool` 入力は `0` / `1` のみ対応
 - 配列要素・vector 要素・`string` 添字への直接入力も可：`cin >> a[i]`, `cin >> v[i]`, `cin >> s[i]`
 - `using namespace std;` は書いてもよい。意味的には無視される
 - `cin` / `cout` / `cerr` / `endl` は `using namespace std;` がなくても直接使える
-- `ios::sync_with_stdio(false);`、`ios_base::sync_with_stdio(false);`、`cin.tie(nullptr);` は競プロ互換の no-op として受理する
+- `ios::sync_with_stdio(false);`、`ios_base::sync_with_stdio(false);`、`cin.tie(nullptr);`、`cout.tie(nullptr);`、`cerr.tie(nullptr);` は競プロ互換の no-op として受理する
 
 ### 8.2 `cout`
 
@@ -424,8 +438,9 @@ cout << "ans: " << x << "\n";
 cout << endl;     // "\n" と同等（フラッシュは内部的に無視）
 ```
 
-- `int`、`long long`、`bool`（`0`/`1` で出力）、`string` の出力に対応
-- `"\n"` と `endl` は同等として扱う
+- `int`、`long long`、`double`、`bool`（`0`/`1` で出力）、`string`、`pair`、`tuple`、pointer の出力に対応
+- `pair` / `tuple` は `(a, b, ...)` 形式で出力する
+- `"\n"` と `endl` は同等として扱う。`endl` は組み込み識別子として `"\n"` 相当の文字列に評価され、flush は行わない
 
 ### 8.3 `cerr`
 
@@ -448,15 +463,21 @@ cerr << "debug: " << x << "\n";
 | `max(a, b)` | `int max(int a, int b)` | 大きい方 |
 | `min(a, b)` | `int min(int a, int b)` | 小さい方 |
 | `swap(a, b)` | `void swap(T& a, T& b)` | 値の交換（参照渡しとして特別扱い） |
+| `make_pair(a, b)` | `pair<T, U> make_pair(T a, U b)` | `pair` の生成 |
+| `make_tuple(a, b, ...)` | `tuple<T...> make_tuple(T...)` | `tuple` の生成 |
 | `sort(v.begin(), v.end())` | vector のソート | 昇順 |
 | `sort(v.begin(), v.end(), greater<int>())` | vector のソート | 降順 |
 | `reverse(v.begin(), v.end())` | vector の反転 | |
 | `fill(v.begin(), v.end(), x)` | vector の一括初期化 | |
 
 - 組み込み関数名は予約語ではない。ユーザー定義関数が同名ならユーザー定義を優先する
+- `abs` / `max` / `min` は現在の実装では整数専用
 - `swap` の引数は lvalue（変数または添字アクセス）でなければならない
+- `make_pair` はちょうど 2 引数、`make_tuple` は 1 引数以上を要求する
 - `sort` / `reverse` / `fill` は `vector` に対する完全範囲 `v.begin(), v.end()` のみ対応
 - `sort` の comparator は `greater<int>()` 形式のみ対応
+- `greater<int>()` は一般テンプレートではなく、降順ソート指定のための組み込み特例構文
+- `get<I>(x)` も一般関数テンプレートではなく、tuple 要素アクセスのための組み込み特例構文
 - `sort` 等の `begin()` / `end()` はイテレータの模倣として構文解析レベルで特別扱いする
 - 固定長配列への `sort`（`sort(a, a + n)`）は将来対応
 
@@ -489,13 +510,11 @@ cerr << "debug: " << x << "\n";
 
 ### 10.2 実行時エラー
 
-実行中に検出。スタックトレースを出力する。
+実行中に検出。現在の実装では、エラー位置の 1 フレームだけを付けて返す。
 
 ```
 Runtime Error: <message>
   at <function>:<line>
-  at <function>:<line>
-  ...
 ```
 
 | 種別 | メッセージ |
@@ -504,8 +523,8 @@ Runtime Error: <message>
 | 配列範囲外アクセス | `Runtime Error: index 10 out of range for array of size 5` |
 | null ポインタ参照 | `Runtime Error: dereference of null pointer` |
 | 未初期化変数の読み取り | `Runtime Error: use of uninitialized variable 'x'` |
-| スタックオーバーフロー | `Runtime Error: stack overflow (recursion depth exceeded 10000)` |
-| ステップ上限超過（無限ループ） | `Runtime Error: execution step limit exceeded (possible infinite loop)` |
+| 条件式の型不正 | `Runtime Error: cannot convert value to bool` |
+| `double` から `int` への不正変換 | `Runtime Error: cannot convert 'double' to 'int'` |
 
 ### 10.3 警告
 
@@ -519,70 +538,71 @@ Runtime Error: <message>
 
 ## 11. 実行モデル
 
-### 11.1 コールスタック
+### 11.1 実行時の値表現
 
 ```typescript
 type Value =
-  | { kind: "int";    value: bigint }
-  | { kind: "bool";   value: boolean }
+  | { kind: "int"; value: bigint }
+  | { kind: "double"; value: number }
+  | { kind: "bool"; value: boolean }
   | { kind: "string"; value: string }
+  | { kind: "pair"; first: Value; second: Value }
+  | { kind: "tuple"; values: Value[] }
+  | { kind: "array"; ref: ArrayId }
   | { kind: "pointer"; pointeeType: TypeNode; target: RuntimeLocation | null }
   | { kind: "reference"; type: ReferenceTypeNode; target: RuntimeLocation }
-  | { kind: "array";  ref: ArrayId }
-  | { kind: "uninitialized" }
+  | { kind: "void" }
+  | { kind: "uninitialized"; expectedType: TypeNode }
+```
 
-type Scope = Map<string, Value>  // 変数名 -> 値
+- `pair` / `tuple` は実行時値として直接保持する
+- pointer / reference は `RuntimeLocation` を通じて、変数・配列要素・tuple 要素・文字列要素を指せる
+- `uninitialized` はローカル未初期化変数の表現であり、読み取り時に実行時エラーになる
+
+### 11.2 スコープとストレージ
+
+```typescript
+type Scope = Map<string, Value>
 
 type Frame = {
   functionName: string
-  scopeStack:   Scope[]          // ブロックごとにpush/pop
-  returnValue:  Value | null
-  currentNode:  ASTNode
-  line:         number
+  line: number
 }
 
-type CallStack = Frame[]
+type ArrayStore = {
+  type: ArrayTypeNode | VectorTypeNode
+  values: Value[]
+}
 ```
 
-### 11.2 グローバルストレージ
+- 実行中のブロックスコープは `scopeStack: Scope[]` で管理する
+- 関数呼び出し履歴は `frameStack: Frame[]` で管理する
+- 固定長配列と `vector` の実体は `Map<ArrayId, ArrayStore>` に保持する
+- 多次元固定長配列は内部的には平坦化した 1 次元ストレージとして管理する
+
+### 11.3 名前解決
+
+1. 現在の `scopeStack` を内側から外側へ探索
+2. 見つからなければグローバル変数を探索
+3. 見つからなければコンパイルエラーまたは内部エラー
+
+### 11.4 実行状態の公開
 
 ```typescript
-type GlobalStore = {
-  vars:   Map<string, Value>
-  arrays: Map<ArrayId, Value[]>  // 配列・vectorの実体はここで管理
+type DebugInfo = {
+  currentLine: number
+  callStack: FrameView[]
+  localVars: ScopeView[]
+  globalVars: DebugValueView[]
+  arrays: ArrayView[]
+  watchList: WatchView[]
+  input: { tokens: string[]; nextIndex: number }
+  executionRange: DebugExecutionRange | null
 }
 ```
 
-- 配列・vector の実体は `GlobalStore.arrays` に格納し、変数は `ArrayId`（内部ID）を保持する
-- 関数に配列を渡す際は `ArrayId` をそのまま渡すため、参照セマンティクスが実現される
-- pointer / reference は `RuntimeLocation` を保持し、デバッガからも追跡できるようにする
-
-### 11.3 変数解決順序
-
-1. 現フレームの `scopeStack` の末尾（最も内側のスコープ）から順に探索
-2. フレーム内に見つからなければ `GlobalStore.vars` を参照
-3. それでも見つからなければ実行時エラー
-
-### 11.4 無限ループ検出
-
-- 実行ステップ数の上限を設ける（デフォルト：10,000,000 ステップ）
-- 上限超過時は `Runtime Error: execution step limit exceeded` を発生させる
-- UI 側でステップ上限を設定可能にする
-
-### 11.5 状態のシリアライズ
-
-すべての実行状態（コールスタック・グローバルストレージ・現在行）はシリアライズ可能でなければならない。これは UI との連携（ステップ実行の UI 更新・巻き戻し）のための要件。
-
-```typescript
-type InterpreterState = {
-  callStack:   Frame[]
-  globalStore: GlobalStore
-  output:      string     // stdout の現在の内容
-  errorOutput: string     // stderr の現在の内容
-  status:      "running" | "paused" | "done" | "error"
-  error:       RuntimeError | null
-}
-```
+- 実行状態は UI 更新用にシリアライズしやすい形で公開する
+- `watchList` フィールドは型上は存在するが、現状は常に空
 
 ---
 
@@ -592,35 +612,34 @@ type InterpreterState = {
 
 | メソッド | 動作 |
 |---|---|
-| `stepInto()` | 次の AST ノードへ進む。関数呼び出しがあれば内部に入る |
-| `stepOver()` | 次の文へ進む。関数呼び出しは1ステップで実行する |
-| `stepOut()` | 現在の関数を末尾まで実行し、呼び出し元に戻る |
+| `stepInto()` | 次の停止点まで 1 ステップ進む |
+| `stepOver()` | 現在の関数深さを超えない範囲で次の文まで進む |
+| `stepOut()` | 現在の関数から抜けるまで進む |
 | `run()` | 次のブレークポイントまたは終了まで実行する |
-| `pause()` | 実行を一時停止する |
+| `pause()` | `status === "running"` のときのみ `paused` に遷移させる |
+
+- `DebugSession` は再開ごとにプログラムを先頭から再実行し、前回の `stepCount` までスキップする方式を採る
+- そのため巻き戻しや途中状態の永続化はまだ未実装
 
 ### 12.2 ブレークポイント
 
 - 行番号単位で設定・解除可能
-- 条件付きブレークポイント（将来対応）
+- `run()` 中は statement ステップでのみブレークポイント判定する
+- 条件付きブレークポイントは未対応
 
-### 12.3 可視化情報
+### 12.3 停止時に観測できる情報
 
-各ステップ停止時に以下を提供する：
-
-```typescript
-type DebugInfo = {
-  currentLine:   number
-  callStack:     FrameView[]      // 各フレームの関数名・行番号
-  localVars:     ScopeView[]      // 現フレームのスコープ階層
-  globalVars:    VarView[]        // グローバル変数一覧
-  arrays:        ArrayView[]      // 配列・vectorの中身（全要素）
-  watchList:     WatchView[]      // ユーザが指定した式の現在値
-}
-```
+- コールスタック
+- ローカル変数のスコープ階層
+- グローバル変数
+- 配列 / `vector` の全要素
+- 入力トークン列と消費位置
+- 現在評価中のソース範囲
+- `pauseReason` (`step` または `breakpoint`)
 
 ---
 
-## 13. 文法（完全 EBNF）
+## 13. 文法（実装に即した EBNF）
 
 ```ebnf
 program       = { global_decl } { function } ;
@@ -634,8 +653,11 @@ param_list    = [ param { "," param } ] ;
 param         = type declarator ;
 
 (* 型 *)
-type          = "int" | "long long" | "bool" | "string" | "void"
-              | "vector" "<" type ">" ;
+type          = primitive_type
+              | "vector" "<" type ">"
+              | "pair" "<" type "," type ">"
+              | "tuple" "<" type { "," type } ">" ;
+primitive_type = "int" | "long long" | "double" | "bool" | "string" | "void" ;
 declarator    = { "*" } [ "&" ] ident { "[" [ int_lit ] "]" } ;
 
 (* 文 *)
@@ -644,6 +666,7 @@ stmt_or_block = block | statement ;
 statement     = var_decl
               | array_decl
               | vector_decl
+              | decl_group_stmt
               | io_stmt
               | if_stmt
               | for_stmt
@@ -655,6 +678,8 @@ statement     = var_decl
               | expr_stmt ;
 
 var_decl      = type var_item { "," var_item } ";" ;
+decl_group_stmt = type decl_item "," decl_item { "," decl_item } ";" ;
+decl_item     = var_item | array_item | vector_item ;
 var_item      = ident [ "=" expr ] ;
 array_decl    = type array_item { "," array_item } ";" ;
 array_item    = ident "[" int_lit "]" [ "=" "{" [ expr_list ] "}" ] ;
@@ -665,11 +690,14 @@ if_stmt       = "if" "(" expr ")" stmt_or_block
                 { "else" "if" "(" expr ")" stmt_or_block }
                 [ "else" stmt_or_block ] ;
 
-for_stmt      = "for" "(" for_init expr ";" for_update ")" stmt_or_block ;
+for_stmt      = "for" "(" for_init [ expr ] ";" [ for_update ] ")" stmt_or_block ;
 range_for_stmt = "for" "(" range_binding ":" expr ")" stmt_or_block ;
 range_binding = ( type | "auto" ) [ "&" ] ident ;
-for_init      = var_decl | assign_expr ";" | ";" ;
-for_update    = assign_expr | postfix_expr | ε ;
+for_init      = var_decl
+              | decl_group_stmt
+              | assign_expr ";"
+              | ";" ;
+for_update    = assign_expr | postfix_expr ;
 
 while_stmt    = "while" "(" expr ")" stmt_or_block ;
 return_stmt   = "return" [ expr ] ";" ;
@@ -705,7 +733,14 @@ postfix_op    = "++" | "--"
               | "[" expr "]"
               | "(" arg_list ")"
               | "." method_call ;
-primary       = int_lit | bool_lit | string_lit | ident | tuple_get | "(" expr ")" ;
+primary       = int_lit
+              | float_lit
+              | bool_lit
+              | string_lit
+              | ident
+              | tuple_get
+              | "endl"
+              | "(" expr ")" ;
 
 lvalue        = ident | ident "[" expr "]" | "*" unary | tuple_get ;
 arg_list      = [ expr { "," expr } ] ;
@@ -715,6 +750,7 @@ tuple_get     = "get" "<" int_lit ">" "(" expr ")" ;
 
 (* リテラル *)
 int_lit       = ["-"] digit { digit } ;
+float_lit     = ["-"] digit { digit } "." digit { digit } ;
 bool_lit      = "true" | "false" ;
 string_lit    = '"' { char } '"' ;
 ident         = letter { letter | digit | "_" } ;
@@ -725,73 +761,93 @@ ident         = letter { letter | digit | "_" } ;
 ## 14. AST ノード定義
 
 ```typescript
-type ASTNode =
-  | Program
-  | FunctionDecl
-  | BlockStmt
-  | GlobalVarDecl
-  | VarDecl
-  | ArrayDecl
-  | VectorDecl
-  | AssignExpr
-  | ConditionalExpr
-  | BinaryExpr
-  | UnaryExpr
-  | IndexExpr            // a[i]
-  | CallExpr
-  | TupleGetExpr         // get<0>(t)
-  | MethodCallExpr       // v.push_back(x) 等
-  | IfStmt
-  | ForStmt
-  | WhileStmt
-  | ReturnStmt
-  | BreakStmt
-  | ContinueStmt
-  | CinStmt
-  | CoutStmt
-  | CerrStmt
-  | Literal              // int, bool, string リテラル
-  | Identifier
+type ProgramNode = {
+  kind: "Program"
+  globals: GlobalDeclNode[]
+  functions: FunctionDeclNode[]
+}
 
-// 各ノードは line, col を保持する
-type NodeBase = { line: number; col: number }
+type GlobalDeclNode = VarDeclNode | ArrayDeclNode | VectorDeclNode
+
+type StatementNode =
+  | BlockStmtNode
+  | DeclGroupStmtNode
+  | VarDeclNode
+  | ArrayDeclNode
+  | VectorDeclNode
+  | RangeForStmtNode
+  | IfStmtNode
+  | ForStmtNode
+  | WhileStmtNode
+  | ReturnStmtNode
+  | BreakStmtNode
+  | ContinueStmtNode
+  | ExprStmtNode
+  | CoutStmtNode
+  | CerrStmtNode
+  | CinStmtNode
+
+type ExprNode =
+  | AssignExprNode
+  | ConditionalExprNode
+  | BinaryExprNode
+  | UnaryExprNode
+  | AddressOfExprNode
+  | DerefExprNode
+  | CallExprNode
+  | TupleGetExprNode
+  | MethodCallExprNode
+  | IndexExprNode
+  | IdentifierExprNode
+  | LiteralExprNode
+
+type AssignTargetNode =
+  | IdentifierExprNode
+  | IndexExprNode
+  | DerefExprNode
+  | TupleGetExprNode
+
+type LiteralExprNode = {
+  kind: "Literal"
+  valueType: "int" | "double" | "bool" | "string"
+}
 ```
 
 ---
 
-## 15. 実装優先順位
+## 15. 実装状況と未対応項目
 
-| フェーズ | 内容 |
-|---|---|
-| 1 | 式評価（四則・比較・論理）、リテラル、`int` 型 |
-| 2 | 変数宣言・代入・ブロックスコープ |
-| 3 | `if` / `while` |
-| 4 | `for`（`int i = 0; i < n; i++` を含む） |
-| 5 | 関数定義・呼び出し・再帰 |
-| 6 | `cin` / `cout` |
-| 7 | 固定長配列 |
-| 8 | `vector` と組み込みメソッド |
-| 9 | グローバル変数 |
-| 10 | デバッグ API（stepInto / stepOver / stepOut / breakpoint） |
-| 11 | `bool`、`string` 型の完全対応 |
-| 12 | `sort`、`abs`、`max`、`min` 等の組み込み関数 |
-| 13 | `long long` の明示的な型名対応 |
-| 14 | `cerr`、`endl` |
+### 15.1 現在サポートしている主な機能
 
-### 将来対応
+- `int` / `long long` / `double` / `bool` / `string`
+- 固定長配列、`vector`
+- pointer / reference、基本的なポインタ演算
+- `pair<T, U>`、`tuple<T...>`、`make_pair`、`make_tuple`、`get<I>`
+- `if` / `for` / range-based `for` / `while` / `break` / `continue`
+- 関数定義・再帰・グローバル変数
+- `cin` / `cout` / `cerr` / `endl`
+- `abs` / `max` / `min` / `swap` / `sort` / `reverse` / `fill`
+- `DebugSession` による `stepInto` / `stepOver` / `stepOut` / `run` / ブレークポイント
 
-- 条件付きコンパイル（`#if`, `#ifdef`, `#ifndef`, `#else`, `#endif`）
-- その他のプリプロセッサディレクティブ
-- 条件付きブレークポイント
-- 実行の巻き戻し（リバースデバッグ）
+### 15.2 現在未対応または限定対応の項目
+
+- ユーザー定義テンプレート、汎用テンプレート機構
+- `struct` / `class`
+- 一般の `auto` 変数宣言、構造化束縛
+- 参照戻り値
 - 固定長配列への `sort(a, a + n)`
+- 条件付きプリプロセッサ（`#if`, `#ifdef`, `#ifndef`, `#else`, `#endif`）
+- 条件付きブレークポイント
+- 巻き戻し実行
+- `watchList` の実評価
+- 完全な C++ 互換 I/O flush / tie セマンティクス
 
 ---
 
 ## 16. 設計上の原則
 
-1. **エラーは例外ではなく結果として返す**：インタープリタは例外をスローせず、`InterpreterState` の `status: "error"` と `error` フィールドで伝達する
-2. **すべての状態はシリアライズ可能**：UI 連携のため `InterpreterState` は JSON にシリアライズできなければならない
-3. **エラーメッセージは GCC/Clang に準拠**：初心者が本物のコンパイラに移行したときに混乱しないようにする
-4. **配列の参照セマンティクスは仕様として明示**：C++ の実挙動と一致するため、バグではなく仕様として文書化する
-5. **ステップ単位は AST ノード 1 つ**：式の途中状態も可視化できるようにするため
+1. **競プロ断片の再現を優先する**：C++ 全体ではなく、競技プログラミングで頻出の表面記法を安全に再現する
+2. **テンプレートは実装しないが、一部の標準ライブラリ記法は組み込みで再現する**：`vector<T>`、`pair<T,U>`、`tuple<T...>`、`get<I>`、`greater<int>()` などはこの方針で扱う
+3. **エラーは結果として返す**：外部 API では `status: "error"` とエラー情報で伝達する
+4. **状態は可視化しやすく保つ**：デバッグ UI 連携を前提に、配列実体・スコープ・現在位置を明示的に保持する
+5. **C++ と完全一致しない点は明文化する**：`vector` の参照セマンティクス、`endl` の no-op flush、再開時の再実行などは仕様として記述する
