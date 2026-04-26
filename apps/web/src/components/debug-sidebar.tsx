@@ -19,8 +19,8 @@ import {
   formatVariablePreview,
   getArrayView,
   type PlaygroundArrayView,
-} from "../../lib/playground/display";
-import { getScopeTitle } from "../../lib/playground/state";
+} from "@web/lib/display";
+import { getScopeTitle } from "@web/lib/state";
 
 type VariableValueTreeProps = {
   arraysByRef: Map<number, PlaygroundArrayView>;

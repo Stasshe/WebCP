@@ -1,12 +1,12 @@
 "use client";
 
-import { usePlaygroundSession } from "../../hooks/use-playground-session";
-import { EditorPane } from "./editor-pane";
-import { DebugSidebar } from "./debug-sidebar";
-import { IOPanels } from "./io-panels";
-import { LoadingScreen } from "./loading-screen";
+import { usePlaygroundSession } from "@web/hooks/use-playground-session";
+import { EditorPane } from "@web/components/editor-pane";
+import { DebugSidebar } from "@web/components/debug-sidebar";
+import { IOPanels } from "@web/components/io-panels";
+import { LoadingScreen } from "@web/components/loading-screen";
 
-export function Playground() {
+export default function Home() {
   const {
     activeOutputTab,
     arraysByRef,

@@ -10,7 +10,7 @@ import {
   reconfigureExecution,
   scrollLineIntoView,
   syncEditorDoc,
-} from "../lib/playground/editor";
+} from "@web/lib/editor";
 import {
   cloneState,
   createInitialExecution,
@@ -18,7 +18,7 @@ import {
   starterInput,
   starterSource,
   storageKeys,
-} from "../lib/playground/state";
+} from "@web/lib/state";
 
 function syncBreakpointState(session: DebugSession | null, nextBreakpoints: number[]) {
   if (!session) {
