@@ -33,7 +33,6 @@
   "editor.minimap.enabled": true,
   "workbench.startupEditor": "none",
   "workbench.colorTheme": "Dark Modern",
-  "workbench.iconTheme": "vs-seti",
   "explorer.confirmDelete": false,
   "editor.bracketPairColorization.enabled": true,
   "editor.guides.bracketPairs": "active",
