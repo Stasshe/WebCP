@@ -1,36 +1,82 @@
 .
+├── CLAUDE.md
 ├── README.md
 ├── SPECIFICATION.md
 ├── TODO.md
+├── apps
+│   └── web
+│       ├── app
+│       │   ├── globals.css
+│       │   ├── layout.tsx
+│       │   ├── page.tsx
+│       │   ├── playground-editor.ts
+│       │   ├── playground-panels.tsx
+│       │   ├── playground-state.ts
+│       │   └── playground.tsx
+│       ├── next-env.d.ts
+│       ├── next.config.mjs
+│       ├── package.json
+│       ├── postcss.config.mjs
+│       ├── tailwind.config.ts
+│       ├── tsconfig.json
+│       └── tsconfig.tsbuildinfo
 ├── biome.json
-├── next.config.ts
-├── package-lock.json
 ├── package.json
-├── postcss.config.js
-├── public
-│   ├── favicon.png
-│   ├── file.svg
-│   ├── globe.svg
-│   ├── next.svg
-│   └── window.svg
+├── pnpm-lock.yaml
+├── pnpm-workspace.yaml
+├── rollup.config.js
 ├── src
-│   ├── app
-│   │   ├── globals.css
-│   │   ├── layout.tsx
-│   │   └── page.tsx
-│   └── contexts
-│       └── ThemeContext.tsx
-├── tailwind.config.ts
+│   ├── compiler.ts
+│   ├── debugger
+│   │   └── session.ts
+│   ├── index.ts
+│   ├── interpreter
+│   │   ├── evaluator.ts
+│   │   ├── index.ts
+│   │   └── runtime
+│   │       ├── core.ts
+│   │       ├── index.ts
+│   │       ├── support.ts
+│   │       └── type-support.ts
+│   ├── parser
+│   │   ├── base
+│   │   │   ├── core.ts
+│   │   │   ├── index.ts
+│   │   │   ├── support.ts
+│   │   │   └── type-support.ts
+│   │   ├── expression.ts
+│   │   ├── index.ts
+│   │   └── lexer.ts
+│   ├── preprocessor.ts
+│   ├── runtime
+│   │   ├── errors.ts
+│   │   └── value.ts
+│   ├── semantic
+│   │   └── validator.ts
+│   └── types.ts
+├── tests
+│   ├── 01-basics.test.ts
+│   ├── 02-control-flow.test.ts
+│   ├── 03-functions.test.ts
+│   ├── 04-arrays.test.ts
+│   ├── 05-vectors.test.ts
+│   ├── 06-errors.test.ts
+│   ├── 07-edge-cases.test.ts
+│   ├── 08-debug.test.ts
+│   ├── 09-semantics-and-builtins.test.ts
+│   ├── 10-pointers-and-references.test.ts
+│   └── test-helper.ts
 ├── tree.sh
 ├── tree.txt
-└── tsconfig.json
+├── tsconfig.json
+└── vitest.config.ts
 
-5 directories, 21 files
+13 directories, 59 files
 
 src/*.ts, *.tsx の統計:
-合計行数: 242
-合計文字数: 9142
-合計ファイルサイズ(bytes): 9442
+合計行数: 7337
+合計文字数: 212713
+合計ファイルサイズ(bytes): 212713
 
 開発環境の容量:
-416M	.
+1.1G	.
