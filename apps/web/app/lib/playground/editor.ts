@@ -13,6 +13,7 @@ import {
   historyKeymap,
   indentWithTab,
 } from "@codemirror/commands";
+import type { CompletionSource } from "@codemirror/autocomplete";
 import { cpp } from "@codemirror/lang-cpp";
 import { bracketMatching, foldGutter, indentOnInput, indentUnit } from "@codemirror/language";
 import {
@@ -23,6 +24,7 @@ import {
   searchKeymap,
 } from "@codemirror/search";
 import { Compartment, EditorState, RangeSetBuilder } from "@codemirror/state";
+import type { DebugExecutionRange } from "@/types";
 import {
   Decoration,
   EditorView,
@@ -35,10 +37,7 @@ import {
   lineNumbers,
   rectangularSelection,
 } from "@codemirror/view";
-import type { DebugExecutionRange } from "@/types";
 import { dracula } from "thememirror";
-import type { CompletionSource } from "@codemirror/autocomplete";
-
 
 const acMainSnippet = `#include <bits/stdc++.h>
 using namespace std;
@@ -47,10 +46,11 @@ int main() {
     
 }`;
 
-
 const cppCompletionSource: CompletionSource = (context) => {
   const word = context.matchBefore(/\w*/);
-  if (!word || (word.from === word.to && !context.explicit)) return null;
+  if (!word || (word.from === word.to && !context.explicit)) {
+    return null;
+  }
 
   return {
     from: word.from,
@@ -93,9 +93,6 @@ const cppCompletionSource: CompletionSource = (context) => {
   };
 };
 
-
-
-
 class BreakpointMarker extends GutterMarker {
   toDOM() {
     const dot = document.createElement("span");
@@ -119,22 +116,26 @@ const executionMarker = new ExecutionMarker();
 export const breakpointCompartment = new Compartment();
 export const executionCompartment = new Compartment();
 
-
-
 function createBreakpointGutter(
   breakpoints: number[],
   onToggle: (line: number) => void
 ) {
   const lines = new Set(breakpoints);
+
   return gutter({
     class: "cm-breakpoint-gutter",
     markers(view) {
       const builder = new RangeSetBuilder<GutterMarker>();
+
       for (let index = 1; index <= view.state.doc.lines; index += 1) {
-        if (!lines.has(index)) continue;
+        if (!lines.has(index)) {
+          continue;
+        }
+
         const line = view.state.doc.line(index);
         builder.add(line.from, line.from, breakpointMarker);
       }
+
       return builder.finish();
     },
     initialSpacer() {
@@ -153,6 +154,7 @@ function getOffsetForPosition(view: EditorView, lineNumber: number, col: number)
   if (lineNumber < 1 || lineNumber > view.state.doc.lines) {
     return null;
   }
+
   const line = view.state.doc.line(lineNumber);
   const lineLength = line.to - line.from;
   const clampedCol = Math.max(1, Math.min(col, lineLength + 1));
@@ -175,6 +177,7 @@ function createExecutionDecorations(
   if (executionRange !== null && view !== undefined) {
     const from = getOffsetForPosition(view, executionRange.startLine, executionRange.startCol);
     const to = getOffsetForPosition(view, executionRange.endLine, executionRange.endCol);
+
     if (from !== null && to !== null && to > from) {
       decorations.push(
         Decoration.mark({
@@ -191,11 +194,13 @@ function createExecutionGutter(lineNumber: number | null) {
   return gutter({
     class: "cm-execution-gutter",
     markers(view) {
-      if (lineNumber === null || lineNumber < 1 || lineNumber > view.state.doc.lines) {
-        return new RangeSetBuilder<GutterMarker>().finish();
-      }
-      const line = view.state.doc.line(lineNumber);
       const builder = new RangeSetBuilder<GutterMarker>();
+
+      if (lineNumber === null || lineNumber < 1 || lineNumber > view.state.doc.lines) {
+        return builder.finish();
+      }
+
+      const line = view.state.doc.line(lineNumber);
       builder.add(line.from, line.from, executionMarker);
       return builder.finish();
     },
@@ -207,13 +212,18 @@ function createExecutionGutter(lineNumber: number | null) {
 
 function expandAcMainSnippet(view: EditorView) {
   const selection = view.state.selection.main;
-  if (!selection.empty) return false;
+  if (!selection.empty) {
+    return false;
+  }
 
   const cursor = selection.from;
   const line = view.state.doc.lineAt(cursor);
   const beforeCursor = view.state.sliceDoc(line.from, cursor);
   const match = beforeCursor.match(/\bacmain$/);
-  if (!match) return false;
+
+  if (!match) {
+    return false;
+  }
 
   const from = cursor - match[0].length;
   const cursorOffset = acMainSnippet.indexOf("    \n") + 4;
@@ -224,17 +234,19 @@ function expandAcMainSnippet(view: EditorView) {
   return true;
 }
 
+type PlaygroundEditorStateOptions = {
+  doc: string;
+  breakpoints: number[];
+  onToggleBreakpoint: (line: number) => void;
+  onSourceChange: (nextSource: string) => void;
+};
+
 export function createPlaygroundEditorState({
   doc,
   breakpoints,
   onToggleBreakpoint,
   onSourceChange,
-}: {
-  doc: string;
-  breakpoints: number[];
-  onToggleBreakpoint: (line: number) => void;
-  onSourceChange: (nextSource: string) => void;
-}) {
+}: PlaygroundEditorStateOptions) {
   return EditorState.create({
     doc,
     extensions: [
@@ -268,6 +280,7 @@ export function createPlaygroundEditorState({
             if (completionStatus(view.state) === "active") {
               return acceptCompletion(view);
             }
+
             return expandAcMainSnippet(view);
           },
         },
@@ -286,7 +299,10 @@ export function createPlaygroundEditorState({
         createExecutionDecorations(null, null),
       ]),
       EditorView.updateListener.of((update) => {
-        if (!update.docChanged) return;
+        if (!update.docChanged) {
+          return;
+        }
+
         onSourceChange(update.state.doc.toString());
       }),
     ],
@@ -311,9 +327,7 @@ export function reconfigureExecution(
   executionRange: DebugExecutionRange | null
 ) {
   const activeLineFrom =
-    lineNumber !== null &&
-    lineNumber >= 1 &&
-    lineNumber <= view.state.doc.lines
+    lineNumber !== null && lineNumber >= 1 && lineNumber <= view.state.doc.lines
       ? view.state.doc.line(lineNumber).from
       : null;
 
@@ -327,14 +341,20 @@ export function reconfigureExecution(
 
 export function syncEditorDoc(view: EditorView, source: string) {
   const currentDoc = view.state.doc.toString();
-  if (currentDoc === source) return;
+  if (currentDoc === source) {
+    return;
+  }
+
   view.dispatch({
     changes: { from: 0, to: currentDoc.length, insert: source },
   });
 }
 
 export function scrollLineIntoView(view: EditorView, lineNumber: number) {
-  if (lineNumber < 1 || lineNumber > view.state.doc.lines) return;
+  if (lineNumber < 1 || lineNumber > view.state.doc.lines) {
+    return;
+  }
+
   const line = view.state.doc.line(lineNumber);
   view.dispatch({
     effects: EditorView.scrollIntoView(line.from, { y: "center" }),

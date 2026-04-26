@@ -49,8 +49,7 @@ int main() {
     return 0;
 }`;
 
-export const starterInput = 
-`7 4
+export const starterInput = `7 4
 0 1
 1 2
 3 4
@@ -64,8 +63,8 @@ export const storageKeys = {
 export function tokenizeInput(input: string) {
   return input
     .split(/\s+/)
-    .map((v) => v.trim())
-    .filter((v) => v.length > 0);
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
 }
 
 export function createInitialExecution(inputValue: string): DebugState {
@@ -94,14 +93,14 @@ export function cloneState(state: DebugState): DebugState {
     ...state,
     output: { ...state.output },
     error: state.error ? { ...state.error } : null,
-    callStack: state.callStack.map((f) => ({ ...f })),
-    localVars: state.localVars.map((s) => ({
-      ...s,
-      vars: s.vars.map((v) => ({ ...v })),
+    callStack: state.callStack.map((frame) => ({ ...frame })),
+    localVars: state.localVars.map((scope) => ({
+      ...scope,
+      vars: scope.vars.map((variable) => ({ ...variable })),
     })),
-    globalVars: state.globalVars.map((v) => ({ ...v })),
-    arrays: state.arrays.map((a) => ({ ...a, values: [...a.values] })),
-    watchList: state.watchList.map((w) => ({ ...w })),
+    globalVars: state.globalVars.map((variable) => ({ ...variable })),
+    arrays: state.arrays.map((array) => ({ ...array, values: [...array.values] })),
+    watchList: state.watchList.map((watchItem) => ({ ...watchItem })),
     input: {
       tokens: [...state.input.tokens],
       nextIndex: state.input.nextIndex,
@@ -112,8 +111,12 @@ export function cloneState(state: DebugState): DebugState {
 
 export function getScopeTitle(scope: ScopeView, index: number): string {
   if (scope.name.startsWith("scope#")) {
-    return index === 0 ? "current scope" : `outer scope ${index}`;
+    if (index === 0) {
+      return "current scope";
+    }
+    return `outer scope ${index}`;
   }
+
   return scope.name;
 }
 
@@ -123,7 +126,9 @@ export function getArrayRef(value: string): number | null {
 }
 
 export function readPersistedPlayground() {
-  if (typeof window === "undefined") return null;
+  if (typeof window === "undefined") {
+    return null;
+  }
 
   return {
     source: window.localStorage.getItem(storageKeys.source) ?? starterSource,

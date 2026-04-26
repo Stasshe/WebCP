@@ -10,8 +10,7 @@ import {
   reconfigureExecution,
   scrollLineIntoView,
   syncEditorDoc,
-} from "./playground-editor";
-import { DebugSidebar, IOPanels } from "./playground-panels";
+} from "../lib/playground/editor";
 import {
   cloneState,
   createInitialExecution,
@@ -19,9 +18,23 @@ import {
   starterInput,
   starterSource,
   storageKeys,
-} from "./playground-state";
+} from "../lib/playground/state";
 
-export function Playground() {
+function syncBreakpointState(session: DebugSession | null, nextBreakpoints: number[]) {
+  if (!session) {
+    return;
+  }
+
+  for (const line of session.listBreakpoints()) {
+    session.removeBreakpoint(line);
+  }
+
+  for (const line of nextBreakpoints) {
+    session.setBreakpoint(line);
+  }
+}
+
+export function usePlaygroundSession() {
   const [source, setSource] = useState(starterSource);
   const [input, setInput] = useState(starterInput);
   const [execution, setExecution] = useState<DebugState>(() => createInitialExecution(starterInput));
@@ -41,28 +54,23 @@ export function Playground() {
   }, [input]);
 
   const arraysByRef = useMemo(
-    () => new Map(execution.arrays.map((arr) => [arr.ref, arr])),
+    () => new Map(execution.arrays.map((array) => [array.ref, array])),
     [execution.arrays]
   );
+
   const hasSession = sessionRef.current !== null;
   const canStep = hasSession && execution.status !== "done" && execution.status !== "error";
-
-  const syncBreakpointState = (session: DebugSession | null, next: number[]) => {
-    if (!session) return;
-    for (const l of session.listBreakpoints()) session.removeBreakpoint(l);
-    for (const l of next) session.setBreakpoint(l);
-  };
 
   const resetExecution = (nextInput = inputRef.current) => {
     sessionRef.current = null;
     setExecution(createInitialExecution(nextInput));
   };
 
-  const withFreshSession = (): DebugSession => {
-    const s = new DebugSession(source, input);
-    syncBreakpointState(s, breakpoints);
-    sessionRef.current = s;
-    return s;
+  const withFreshSession = () => {
+    const nextSession = new DebugSession(source, input);
+    syncBreakpointState(nextSession, breakpoints);
+    sessionRef.current = nextSession;
+    return nextSession;
   };
 
   const applyState = (state: DebugState) => {
@@ -71,49 +79,61 @@ export function Playground() {
   };
 
   const runAction = (
-    action: (s: DebugSession) => DebugState,
-    opts: { restart?: boolean } = {}
+    action: (session: DebugSession) => DebugState,
+    options: { restart?: boolean } = {}
   ) => {
     startTransition(() => {
-      const s =
-        opts.restart || !sessionRef.current
-          ? withFreshSession()
-          : sessionRef.current;
-      applyState(action(s));
+      let session = sessionRef.current;
+      if (options.restart || session === null) {
+        session = withFreshSession();
+      }
+
+      applyState(action(session));
     });
   };
 
-  const handleLaunch = () => runAction((s) => s.stepInto(), { restart: true });
-  const handleRestart = () => runAction((s) => s.stepInto(), { restart: true });
-  const handleContinue = () => runAction((s) => s.run(), { restart: isDirty });
-  const handleStepInto = () => runAction((s) => s.stepInto(), { restart: isDirty });
-  const handleStepOver = () => runAction((s) => s.stepOver(), { restart: isDirty });
-  const handleStepOut = () => runAction((s) => s.stepOut(), { restart: isDirty });
+  const handleLaunch = () => runAction((session) => session.stepInto(), { restart: true });
+  const handleRestart = () => runAction((session) => session.stepInto(), { restart: true });
+  const handleContinue = () => runAction((session) => session.run(), { restart: isDirty });
+  const handleStepInto = () => runAction((session) => session.stepInto(), { restart: isDirty });
+  const handleStepOver = () => runAction((session) => session.stepOver(), { restart: isDirty });
+  const handleStepOut = () => runAction((session) => session.stepOut(), { restart: isDirty });
 
   const toggleBreakpoint = (line: number) => {
-    setBreakpoints((cur) => {
-      const next = cur.includes(line)
-        ? cur.filter((v) => v !== line)
-        : [...cur, line].sort((a, b) => a - b);
-      syncBreakpointState(sessionRef.current, next);
-      return next;
+    setBreakpoints((currentBreakpoints) => {
+      const nextBreakpoints = currentBreakpoints.includes(line)
+        ? currentBreakpoints.filter((value) => value !== line)
+        : [...currentBreakpoints, line].sort((left, right) => left - right);
+
+      syncBreakpointState(sessionRef.current, nextBreakpoints);
+      return nextBreakpoints;
     });
+  };
+
+  const handleInputChange = (nextInput: string) => {
+    setInput(nextInput);
+    inputRef.current = nextInput;
+    setIsDirty(true);
+    resetExecution(nextInput);
   };
 
   useEffect(() => {
     const persisted = readPersistedPlayground();
+
     if (persisted !== null) {
       setSource(persisted.source);
       setInput(persisted.input);
       inputRef.current = persisted.input;
       setExecution(createInitialExecution(persisted.input));
     }
+
     setHasRestored(true);
   }, []);
 
   useEffect(() => {
-    if (!editorHostRef.current) return;
-    if (!hasRestored) return;
+    if (!editorHostRef.current || !hasRestored) {
+      return;
+    }
 
     const state = createPlaygroundEditorState({
       doc: source,
@@ -140,20 +160,27 @@ export function Playground() {
 
   useEffect(() => {
     const view = editorViewRef.current;
-    if (!view) return;
+    if (!view) {
+      return;
+    }
+
     reconfigureBreakpoints(view, breakpoints, toggleBreakpoint);
   }, [breakpoints]);
 
   useEffect(() => {
     const view = editorViewRef.current;
-    if (!view) return;
+    if (!view) {
+      return;
+    }
 
-    const activeLine =
+    let activeLine: number | null = null;
+    if (
       execution.status === "paused" ||
       execution.status === "done" ||
       execution.status === "error"
-        ? execution.currentLine
-        : null;
+    ) {
+      activeLine = execution.currentLine;
+    }
 
     reconfigureExecution(view, activeLine, execution.executionRange);
     if (activeLine !== null) {
@@ -163,63 +190,47 @@ export function Playground() {
 
   useEffect(() => {
     const view = editorViewRef.current;
-    if (!view) return;
+    if (!view) {
+      return;
+    }
+
     syncEditorDoc(view, source);
   }, [source]);
 
   useEffect(() => {
-    if (!hasRestored) return;
+    if (!hasRestored) {
+      return;
+    }
+
     window.localStorage.setItem(storageKeys.source, source);
   }, [hasRestored, source]);
 
   useEffect(() => {
-    if (!hasRestored) return;
+    if (!hasRestored) {
+      return;
+    }
+
     window.localStorage.setItem(storageKeys.input, input);
   }, [hasRestored, input]);
 
-  if (!hasRestored) {
-    return (
-      <div className="grid h-screen place-items-center text-[var(--text-dim)] tracking-[0.04em] uppercase">
-        <span>Loading...</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid h-screen grid-cols-1 grid-rows-[minmax(280px,38vh)_1fr] overflow-hidden lg:grid-cols-[minmax(320px,4fr)_minmax(0,6fr)] lg:grid-rows-[100vh]">
-      <DebugSidebar
-        execution={execution}
-        breakpoints={breakpoints}
-        isDirty={isDirty}
-        isPending={isPending}
-        canStep={canStep}
-        arraysByRef={arraysByRef}
-        onLaunch={handleLaunch}
-        onContinue={handleContinue}
-        onRestart={handleRestart}
-        onStepInto={handleStepInto}
-        onStepOver={handleStepOver}
-        onStepOut={handleStepOut}
-      />
-
-      <div className="grid min-h-0 grid-rows-[1fr_180px] overflow-hidden bg-[var(--bg)]">
-        <div className="min-h-0 overflow-hidden border-b border-[var(--border)]">
-          <div ref={editorHostRef} className="h-full min-h-0" />
-        </div>
-
-        <IOPanels
-          input={input}
-          activeOutputTab={activeOutputTab}
-          execution={execution}
-          onInputChange={(nextInput) => {
-            setInput(nextInput);
-            inputRef.current = nextInput;
-            setIsDirty(true);
-            resetExecution(nextInput);
-          }}
-          onOutputTabChange={setActiveOutputTab}
-        />
-      </div>
-    </div>
-  );
+  return {
+    activeOutputTab,
+    arraysByRef,
+    breakpoints,
+    canStep,
+    editorHostRef,
+    execution,
+    handleContinue,
+    handleInputChange,
+    handleLaunch,
+    handleRestart,
+    handleStepInto,
+    handleStepOut,
+    handleStepOver,
+    hasRestored,
+    input,
+    isDirty,
+    isPending,
+    setActiveOutputTab,
+  };
 }
