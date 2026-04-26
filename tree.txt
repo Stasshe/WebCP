@@ -5,18 +5,26 @@
 ├── TODO.md
 ├── apps
 │   └── web
-│       ├── app
-│       │   ├── globals.css
-│       │   ├── layout.tsx
-│       │   ├── page.tsx
-│       │   ├── playground-editor.ts
-│       │   ├── playground-panels.tsx
-│       │   ├── playground-state.ts
-│       │   └── playground.tsx
 │       ├── next-env.d.ts
 │       ├── next.config.mjs
 │       ├── package.json
 │       ├── postcss.config.mjs
+│       ├── src
+│       │   ├── app
+│       │   │   ├── globals.css
+│       │   │   ├── layout.tsx
+│       │   │   └── page.tsx
+│       │   ├── components
+│       │   │   ├── debug-sidebar.tsx
+│       │   │   ├── editor-pane.tsx
+│       │   │   ├── io-panels.tsx
+│       │   │   └── loading-screen.tsx
+│       │   ├── hooks
+│       │   │   └── use-playground-session.ts
+│       │   └── lib
+│       │       ├── display.ts
+│       │       ├── editor.ts
+│       │       └── state.ts
 │       ├── tailwind.config.ts
 │       ├── tsconfig.json
 │       └── tsconfig.tsbuildinfo
@@ -24,11 +32,14 @@
 ├── package.json
 ├── pnpm-lock.yaml
 ├── pnpm-workspace.yaml
+├── readme-assets
+│   └── web-app-screenshot1.png
 ├── rollup.config.js
 ├── src
 │   ├── compiler.ts
 │   ├── debugger
 │   │   └── session.ts
+│   ├── diagnostics.ts
 │   ├── index.ts
 │   ├── interpreter
 │   │   ├── evaluator.ts
@@ -65,18 +76,19 @@
 │   ├── 08-debug.test.ts
 │   ├── 09-semantics-and-builtins.test.ts
 │   ├── 10-pointers-and-references.test.ts
+│   ├── 11-sample-programs.test.ts
 │   └── test-helper.ts
 ├── tree.sh
 ├── tree.txt
 ├── tsconfig.json
 └── vitest.config.ts
 
-13 directories, 59 files
+18 directories, 66 files
 
 src/*.ts, *.tsx の統計:
-合計行数: 7337
-合計文字数: 212713
-合計ファイルサイズ(bytes): 212713
+合計行数: 7638
+合計文字数: 221949
+合計ファイルサイズ(bytes): 221949
 
 開発環境の容量:
-1.1G	.
+1.3G	.
