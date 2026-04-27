@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileAndRun } from "./test-helper";
+import { compile, compileAndRun } from "./test-helper";
 
 describe("Template Functions", () => {
   it("infers type from single param", () => {
@@ -88,5 +88,27 @@ int main() { return 0; }
     );
     expect(result.status).toBe("error");
     expect(result.error?.message).toMatch(/redefinition of function/);
+  });
+
+  it("rejects conflicting type deduction", () => {
+    const result = compile(
+      `
+#include<iostream>
+using namespace std;
+template<typename T>
+T same(T a, T b) {
+  return a;
+}
+int main() {
+  cout << same(true, 1) << '\\n';
+  return 0;
+}
+`,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected compile error");
+    }
+    expect(result.errors[0]?.message).toMatch(/cannot deduce template arguments/);
   });
 });

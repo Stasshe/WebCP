@@ -18,6 +18,7 @@ import type {
   WhileStmtNode,
 } from "@/types";
 import { isPointerType, isReferenceType, isTemplateInstanceType } from "@/types";
+import { sameType } from "./type-compat";
 
 export type TypeArgMap = Map<string, TypeNode>;
 
@@ -170,7 +171,9 @@ export function inferTypeArgs(
     const param = params[i];
     const argType = argTypes[i];
     if (param === undefined || argType === null || argType === undefined) continue;
-    inferFromPair(param.type, argType, typeParams, map);
+    if (!inferFromPair(param.type, argType, typeParams, map)) {
+      return null;
+    }
   }
   for (const tp of typeParams) {
     if (!map.has(tp)) return null;
@@ -183,32 +186,45 @@ function inferFromPair(
   argType: TypeNode,
   typeParams: string[],
   map: TypeArgMap,
-): void {
+): boolean {
   if (paramType.kind === "NamedType" && typeParams.includes(paramType.name)) {
     const concrete = stripRef(argType);
     const existing = map.get(paramType.name);
     if (existing === undefined) {
       map.set(paramType.name, concrete);
+      return true;
     }
-    return;
+    return sameType(existing, concrete);
   }
   if (isReferenceType(paramType)) {
-    inferFromPair(paramType.referredType, argType, typeParams, map);
-    return;
+    return inferFromPair(paramType.referredType, argType, typeParams, map);
   }
-  if (isPointerType(paramType) && isPointerType(argType)) {
-    inferFromPair(paramType.pointeeType, argType.pointeeType, typeParams, map);
-    return;
+  if (isPointerType(paramType)) {
+    return (
+      isPointerType(argType) &&
+      inferFromPair(paramType.pointeeType, argType.pointeeType, typeParams, map)
+    );
   }
-  if (isTemplateInstanceType(paramType) && isTemplateInstanceType(argType)) {
+  if (isTemplateInstanceType(paramType)) {
+    if (
+      !isTemplateInstanceType(argType) ||
+      paramType.template.name !== argType.template.name ||
+      paramType.templateArgs.length !== argType.templateArgs.length
+    ) {
+      return false;
+    }
     for (let i = 0; i < paramType.templateArgs.length; i += 1) {
       const pt = paramType.templateArgs[i];
       const at = argType.templateArgs[i];
       if (pt !== undefined && at !== undefined) {
-        inferFromPair(pt, at, typeParams, map);
+        if (!inferFromPair(pt, at, typeParams, map)) {
+          return false;
+        }
       }
     }
+    return true;
   }
+  return true;
 }
 
 function stripRef(type: TypeNode): TypeNode {

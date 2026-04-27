@@ -19,7 +19,7 @@
 |---|---|
 | 動的メモリ（`malloc`, `new`, `free`, `delete`） | |
 | 構造体・クラス（`struct`, `class`） | |
-| テンプレート（`template<>`） | ユーザー定義テンプレート・汎用テンプレート機構は非対応。`vector<T>`、`map<K,V>`、`pair<T,U>`、`tuple<T...>`、`make_pair`、`make_tuple`、`get<I>`、`greater<int>()` / `greater<>()` など一部の標準ライブラリ記法のみ組み込みとして特別対応 |
+| テンプレート（`template<>`） | クラステンプレート・変数テンプレート・明示テンプレート実引数呼び出し（`f<int>(x)`）・汎用 template-id は非対応。関数テンプレート宣言と、実引数からの型推論による呼び出しのみ限定対応。`vector<T>`、`map<K,V>`、`pair<T,U>`、`tuple<T...>`、`make_pair`、`make_tuple`、`get<I>`、`greater<int>()` / `greater<>()` などの標準ライブラリ風記法も引き続きサポートするが、内部実装は intrinsic / metadata による特例を含む |
 | 関数ポインタ | |
 | 名前空間（`namespace`） | `using namespace std;` のみ特別扱いで許可 |
 | プリプロセッサ | `#include <bits/stdc++.h>`、`#include <iostream>`、`#include <vector>`、`#include <map>`、`#define` に対応 |
@@ -149,7 +149,7 @@ cout << p.first << " " << p.second << "\n";
 - `pair<T, U>` を型としてサポートする
 - 生成は `make_pair(a, b)` をサポートする
 - メンバーアクセスとして `p.first` と `p.second` をサポートする
-- これは一般テンプレートの実装ではなく、`pair` を組み込み ADT として特別扱いする
+- 型表現は一般化されているが、メンバーアクセスや生成はまだ intrinsic ベースの特例実装を含む
 - 構造化束縛（`auto [x, y]`）は非対応
 
 ### 3.7 `tuple` / 多重戻り値
@@ -170,8 +170,24 @@ int main() {
 - 要素アクセスは `get<I>(t)` をサポートする。`I` は 0 始まりの非負整数リテラル
 - `get<I>(t)` は lvalue として使える。代入や `swap` の対象にもできる
 - 関数の戻り値として `tuple<...>` を許可し、多重戻り値は tuple を返す形で表現する
-- これは一般テンプレートの実装ではなく、`tuple` と `get<I>` を組み込み ADT / 組み込み操作として特別扱いする
+- 型表現は一般化されているが、`get<I>` や生成はまだ intrinsic ベースの特例実装を含む
 - 構造化束縛（`auto [x, y]`）は非対応
+
+### 3.8 関数テンプレート（限定対応）
+
+```cpp
+template<typename T>
+void chmin(T& a, T b) {
+    if (b < a) a = b;
+}
+```
+
+- トップレベルの関数テンプレート宣言をサポートする
+- 型パラメータ宣言は `template<typename T, ...>` のみ対応する。`class` は未対応
+- 呼び出しは `chmin(x, y)` のような実引数からの型推論のみ対応する
+- 同一テンプレート引数は厳密に一致する必要があり、`same('a', 1)` のような競合推論はコンパイルエラー
+- 現在の実装は関数テンプレートの単相化に相当する仕組みを持つが、サポート対象は関数テンプレートのみ
+- 未対応: クラステンプレート、部分特殊化、明示特殊化、オーバーロード解決、明示テンプレート実引数（`f<int>(x)`）
 
 ---
 
@@ -483,10 +499,10 @@ cerr << "debug: " << x << "\n";
 - `swap` の引数は lvalue（変数または添字アクセス）でなければならない
 - `make_pair` はちょうど 2 引数、`make_tuple` は 1 引数以上を要求する
 - `sort` / `reverse` / `fill` は `vector` に対する完全範囲 `v.begin(), v.end()` のみ対応
-- `sort` の comparator は `greater<int>()` 形式のみ対応
+- `sort` の comparator は `greater<int>()` と `greater<>()` に対応する。後者は前処理段階で `greater<int>()` に正規化する
 - `greater<int>()` は一般テンプレートではなく、降順ソート指定のための組み込み特例構文
 - `get<I>(x)` も一般関数テンプレートではなく、tuple 要素アクセスのための組み込み特例構文
-- `sort` 等の `begin()` / `end()` はイテレータの模倣として構文解析レベルで特別扱いする
+- `sort` 等の `begin()` / `end()` は iterator オブジェクトではなく、メソッド metadata と evaluator 特例で実装する
 - 固定長配列への `sort`（`sort(a, a + n)`）は将来対応
 
 ---
@@ -860,6 +876,7 @@ type LiteralExprNode = {
 - 固定長配列、`vector`
 - pointer / reference、基本的なポインタ演算
 - `pair<T, U>`、`tuple<T...>`、`make_pair`、`make_tuple`、`get<I>`
+- 限定的な関数テンプレート（`template<typename T> ...` + 型推論呼び出し）
 - `if` / `for` / range-based `for` / `while` / `break` / `continue`
 - 関数定義・再帰・グローバル変数
 - `cin` / `cout` / `cerr` / `endl`
@@ -868,7 +885,8 @@ type LiteralExprNode = {
 
 ### 15.2 現在未対応または限定対応の項目
 
-- ユーザー定義テンプレート、汎用テンプレート機構
+- クラステンプレート、変数テンプレート、汎用 template-id
+- 明示テンプレート実引数（`f<int>(x)`）、部分特殊化、明示特殊化、オーバーロード解決
 - `struct` / `class`
 - 一般の `auto` 変数宣言、構造化束縛
 - 参照戻り値
@@ -884,7 +902,7 @@ type LiteralExprNode = {
 ## 16. 設計上の原則
 
 1. **競プロ断片の再現を優先する**：C++ 全体ではなく、競技プログラミングで頻出の表面記法を安全に再現する
-2. **テンプレートは実装しないが、一部の標準ライブラリ記法は組み込みで再現する**：`vector<T>`、`pair<T,U>`、`tuple<T...>`、`get<I>`、`greater<int>()` などはこの方針で扱う
+2. **テンプレートは限定実装とし、標準ライブラリ風記法は intrinsic で補う**：関数テンプレートは型推論付き呼び出しに限ってサポートし、`vector<T>`、`pair<T,U>`、`tuple<T...>`、`get<I>`、`greater<int>()` などはこの方針で扱う
 3. **エラーは結果として返す**：外部 API では `status: "error"` とエラー情報で伝達する
 4. **状態は可視化しやすく保つ**：デバッグ UI 連携を前提に、配列実体・スコープ・現在位置を明示的に保持する
 5. **C++ と完全一致しない点は明文化する**：`vector` の参照セマンティクス、`endl` の no-op flush、再開時の再実行などは仕様として記述する

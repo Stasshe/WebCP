@@ -20,6 +20,7 @@ index.ts → すべて
 |---|---|
 | `validator.ts` | AST 全体の型検査・エラー収集。メインエントリ |
 | `builtin-checker.ts` | 組み込み関数・テンプレート呼び出し・メソッド呼び出しの型検査 |
+| `template-instantiator.ts` | 関数テンプレートの型引数推論・単相化 |
 | `type-compat.ts` | 型の互換性判定（`sameType`, `isAssignable`, `inferBinaryType` 等） |
 | `type-utils.ts` | 型プレディケート純関数（`isIntType`, `containsVoid` 等） |
 
@@ -69,7 +70,14 @@ export interface EvalCtx {
 | `registry.ts` | 組み込み関数・テンプレートのメタデータ登録・検索 |
 | `template-exprs.ts` | テンプレート式ユーティリティ（`isTemplateNamed`, `getSingleTypeTemplateArg` 等） |
 | `template-types.ts` | テンプレート型アクセサ（`vectorElementType`, `mapKeyType` 等） |
+| `vector-methods.ts` / `map-methods.ts` | コンテナメソッド metadata |
 | `builtins/compare.ts` | 値比較純関数（評価器文脈不要） |
+
+### 現状の到達点
+
+- template AST と関数テンプレート単相化は入っている
+- ただし `stdlib/` はまだ「完全な標準ライブラリ定義」ではなく、metadata と helper の集約層
+- `vector` / `tuple` / `get` / `sort` などの振る舞い本体は、依然として `semantic/` と `interpreter/` の intrinsic 実装が担当している
 
 ## 新規組み込み追加手順
 
