@@ -1,5 +1,6 @@
 import type { RuntimeLocation, RuntimeValue } from "@/runtime/value";
 import type { ArrayTypeNode, ExprNode, TypeNode } from "@/types";
+import { isMapType, pairType } from "@/types";
 import type { Scope } from "./core";
 import { InterpreterRuntimeTypeSupport } from "./type-support";
 
@@ -256,13 +257,9 @@ export abstract class InterpreterRuntimeSupport extends InterpreterRuntimeTypeSu
         if (location.access === "entry") {
           return {
             kind: "pair",
-            type: parent.type.kind === "MapType"
-              ? {
-                  kind: "PairType",
-                  firstType: parent.type.keyType,
-                  secondType: parent.type.valueType,
-                }
-              : location.type as Extract<TypeNode, { kind: "PairType" }>,
+            type: isMapType(parent.type)
+              ? pairType(parent.type.keyType, parent.type.valueType)
+              : (location.type as ReturnType<typeof pairType>),
             first: entry.key,
             second: entry.value.kind === "reference" ? this.readLocation(entry.value.target, line) : entry.value,
           };

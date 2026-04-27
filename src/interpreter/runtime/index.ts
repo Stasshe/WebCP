@@ -8,7 +8,7 @@ import type {
   FrameView,
   RuntimeErrorInfo,
 } from "@/types";
-import { typeToString } from "@/types";
+import { isVectorType, typeToString } from "@/types";
 import type { ArrayStore, Scope } from "./core";
 import { InterpreterRuntimeSupport } from "./support";
 
@@ -53,7 +53,7 @@ export function buildDebugInfoView(
     arrays: Array.from(arrays.entries()).map(([ref, store]) => ({
       ref,
       elementType: typeToString(store.type.elementType),
-      dynamic: store.type.kind === "VectorType",
+      dynamic: isVectorType(store.type),
       values: store.values.map((value) => serializeValue(value)),
     })),
     watchList: [],

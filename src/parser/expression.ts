@@ -1,3 +1,4 @@
+import { isBuiltinTemplateComparatorName } from "@/stdlib/registry";
 import type {
   AddressOfExprNode,
   AssignExprNode,
@@ -481,7 +482,7 @@ export abstract class ExpressionParser extends BaseParser {
     const next = this.tokens[this.index + 1];
     if (
       token?.kind !== "identifier" ||
-      token.text !== "greater" ||
+      !isBuiltinTemplateComparatorName(token.text) ||
       next?.kind !== "symbol" ||
       next.text !== "<"
     ) {

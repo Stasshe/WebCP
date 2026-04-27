@@ -1,6 +1,18 @@
+import {
+  isBuiltinRangeAlgorithmName,
+  isBuiltinTemplateComparatorName,
+  isBuiltinTemplateFactoryName,
+  isBuiltinValueFunctionName,
+} from "@/stdlib/registry";
 import type { RuntimeLocation, RuntimeValue } from "@/runtime/value";
-import type { AssignTargetNode, BinaryExprNode, ExprNode, FunctionDeclNode } from "@/types";
-import { isReferenceType } from "@/types";
+import type {
+  AssignTargetNode,
+  BinaryExprNode,
+  ExprNode,
+  FunctionDeclNode,
+  VectorTypeNode,
+} from "@/types";
+import { isReferenceType, isVectorType, pairType, tupleType } from "@/types";
 import { InterpreterRuntime } from "./runtime";
 
 export type RuntimeArgument =
@@ -316,7 +328,7 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
     args: ExprNode[],
     line: number,
   ): RuntimeValue | null {
-    if (callee === "abs") {
+    if (isBuiltinValueFunctionName(callee) && callee === "abs") {
       if (args.length !== 1) {
         this.fail("abs requires exactly 1 argument", line);
       }
@@ -324,7 +336,7 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
       return { kind: "int", value: value < 0n ? -value : value };
     }
 
-    if (callee === "max" || callee === "min") {
+    if (isBuiltinValueFunctionName(callee) && (callee === "max" || callee === "min")) {
       if (args.length !== 2) {
         this.fail(`${callee} requires exactly 2 arguments`, line);
       }
@@ -336,7 +348,7 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
       };
     }
 
-    if (callee === "swap") {
+    if (isBuiltinValueFunctionName(callee) && callee === "swap") {
       if (args.length !== 2) {
         this.fail("swap requires exactly 2 arguments", line);
       }
@@ -357,7 +369,7 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
       return { kind: "void" };
     }
 
-    if (callee === "make_pair") {
+    if (isBuiltinTemplateFactoryName(callee) && callee === "make_pair") {
       if (args.length !== 2) {
         this.fail("make_pair requires exactly 2 arguments", line);
       }
@@ -377,16 +389,14 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
       return {
         kind: "pair",
         type: {
-          kind: "PairType",
-          firstType: this.runtimeValueToType(firstValue, line),
-          secondType: this.runtimeValueToType(secondValue, line),
+          ...pairType(this.runtimeValueToType(firstValue, line), this.runtimeValueToType(secondValue, line)),
         },
         first: firstValue,
         second: secondValue,
       };
     }
 
-    if (callee === "make_tuple") {
+    if (isBuiltinTemplateFactoryName(callee) && callee === "make_tuple") {
       if (args.length === 0) {
         this.fail("make_tuple requires at least 1 argument", line);
       }
@@ -396,25 +406,14 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
       return {
         kind: "tuple",
         type: {
-          kind: "TupleType",
-          elementTypes: values.map((value) => this.runtimeValueToType(value, line)),
+          ...tupleType(values.map((value) => this.runtimeValueToType(value, line))),
         },
         values,
       };
     }
 
-    if (callee === "sort") {
-      this.applyRangeBuiltin("sort", args, line);
-      return { kind: "void" };
-    }
-
-    if (callee === "reverse") {
-      this.applyRangeBuiltin("reverse", args, line);
-      return { kind: "void" };
-    }
-
-    if (callee === "fill") {
-      this.applyRangeBuiltin("fill", args, line);
+    if (isBuiltinRangeAlgorithmName(callee)) {
+      this.applyRangeBuiltin(callee, args, line);
       return { kind: "void" };
     }
 
@@ -472,7 +471,7 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
     if (store === undefined) {
       this.fail("invalid array reference", line);
     }
-    if (store.type.kind !== "VectorType") {
+    if (!isVectorType(store.type)) {
       this.fail(`method '${method}' is not supported for fixed array`, line);
     }
 
@@ -865,7 +864,7 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
   ): {
     store: {
       values: RuntimeValue[];
-      type: { kind: "VectorType"; elementType: import("@/types").TypeNode };
+      type: VectorTypeNode;
     };
   } {
     const minArgs = callee === "fill" ? 3 : 2;
@@ -905,14 +904,14 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
     if (store === undefined) {
       this.fail("invalid array reference", line);
     }
-    if (store.type.kind !== "VectorType") {
+    if (!isVectorType(store.type)) {
       this.fail(`${callee} requires a vector range`, line);
     }
 
     return {
       store: store as {
         values: RuntimeValue[];
-        type: { kind: "VectorType"; elementType: import("@/types").TypeNode };
+        type: VectorTypeNode;
       },
     };
   }
@@ -921,7 +920,11 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
     if (expr === undefined) {
       return false;
     }
-    if (expr.kind === "CallExpr" && expr.callee === "greater" && expr.args.length === 0) {
+    if (
+      expr.kind === "CallExpr" &&
+      isBuiltinTemplateComparatorName(expr.callee) &&
+      expr.args.length === 0
+    ) {
       return true;
     }
     this.fail("unsupported sort comparator", line);

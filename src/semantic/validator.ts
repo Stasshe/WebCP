@@ -1,3 +1,9 @@
+import {
+  isBuiltinRangeAlgorithmName,
+  isBuiltinTemplateComparatorName,
+  isBuiltinTemplateFactoryName,
+  isBuiltinValueFunctionName,
+} from "@/stdlib/registry";
 import type {
   CompileError,
   ExprNode,
@@ -8,7 +14,19 @@ import type {
   StatementNode,
   TypeNode,
 } from "@/types";
-import { isPointerType, isPrimitiveType, isReferenceType, typeToString } from "@/types";
+import {
+  isArrayType,
+  isMapType,
+  isPairType,
+  isPointerType,
+  isPrimitiveType,
+  isReferenceType,
+  isTupleType,
+  isVectorType,
+  pairType,
+  tupleType,
+  typeToString,
+} from "@/types";
 
 type ValidationContext = {
   errors: CompileError[];
@@ -222,7 +240,7 @@ function validateDecl(
 ): void {
   switch (stmt.kind) {
     case "VarDecl":
-      if (stmt.type.kind === "ArrayType" || stmt.type.kind === "VectorType") {
+      if (isArrayType(stmt.type) || isVectorType(stmt.type)) {
         pushError(
           context,
           stmt.line,
@@ -407,11 +425,11 @@ function inferExprType(expr: ExprNode, context: ValidationContext): TypeNode | n
         validateExpr(expr.index, context, "int");
         return { kind: "PrimitiveType", name: "char" };
       }
-      if (targetType.kind === "ArrayType" || targetType.kind === "VectorType") {
+      if (isArrayType(targetType) || isVectorType(targetType)) {
         validateExpr(expr.index, context, "int");
         return targetType.elementType;
       }
-      if (targetType.kind === "MapType") {
+      if (isMapType(targetType)) {
         validateExpr(expr.index, context, targetType.keyType);
         return targetType.valueType;
       }
@@ -526,7 +544,7 @@ function inferExprType(expr: ExprNode, context: ValidationContext): TypeNode | n
       if (tupleType === null) {
         return null;
       }
-      if (tupleType.kind !== "TupleType") {
+      if (!isTupleType(tupleType)) {
         pushError(context, expr.line, expr.col, "type mismatch: expected tuple");
         return null;
       }
@@ -615,8 +633,8 @@ function inferBinaryType(
       return { kind: "PrimitiveType", name: "bool" };
     }
     if (
-      (left !== null && (left.kind === "PairType" || left.kind === "TupleType")) ||
-      (right !== null && (right.kind === "PairType" || right.kind === "TupleType"))
+      (left !== null && (isPairType(left) || isTupleType(left))) ||
+      (right !== null && (isPairType(right) || isTupleType(right)))
     ) {
       pushError(context, expr.line, expr.col, "tuple/pair comparison is not supported");
       return { kind: "PrimitiveType", name: "bool" };
@@ -719,7 +737,7 @@ function validateBuiltinCall(
   col: number,
   context: ValidationContext,
 ): TypeNode | null | undefined {
-  if (callee === "abs") {
+  if (isBuiltinValueFunctionName(callee) && callee === "abs") {
     if (args.length !== 1) {
       pushError(context, line, col, "abs requires exactly 1 argument");
     }
@@ -727,7 +745,7 @@ function validateBuiltinCall(
     return { kind: "PrimitiveType", name: "int" };
   }
 
-  if (callee === "max" || callee === "min") {
+  if (isBuiltinValueFunctionName(callee) && (callee === "max" || callee === "min")) {
     if (args.length !== 2) {
       pushError(context, line, col, `${callee} requires exactly 2 arguments`);
     }
@@ -736,7 +754,7 @@ function validateBuiltinCall(
     return { kind: "PrimitiveType", name: "int" };
   }
 
-  if (callee === "swap") {
+  if (isBuiltinValueFunctionName(callee) && callee === "swap") {
     if (args.length !== 2) {
       pushError(context, line, col, "swap requires exactly 2 arguments");
     }
@@ -767,7 +785,7 @@ function validateBuiltinCall(
     return { kind: "PrimitiveType", name: "void" };
   }
 
-  if (callee === "make_pair") {
+  if (isBuiltinTemplateFactoryName(callee) && callee === "make_pair") {
     if (args.length !== 2) {
       pushError(context, line, col, "make_pair requires exactly 2 arguments");
     }
@@ -776,10 +794,10 @@ function validateBuiltinCall(
     if (firstType === null || secondType === null) {
       return null;
     }
-    return { kind: "PairType", firstType, secondType };
+    return pairType(firstType, secondType);
   }
 
-  if (callee === "make_tuple") {
+  if (isBuiltinTemplateFactoryName(callee) && callee === "make_tuple") {
     if (args.length === 0) {
       pushError(context, line, col, "make_tuple requires at least 1 argument");
       return null;
@@ -792,14 +810,14 @@ function validateBuiltinCall(
       }
       elementTypes.push(elementType);
     }
-    return { kind: "TupleType", elementTypes };
+    return tupleType(elementTypes);
   }
 
-  if (callee === "sort" || callee === "reverse" || callee === "fill") {
+  if (isBuiltinRangeAlgorithmName(callee)) {
     return validateRangeBuiltin(callee, args, line, col, context);
   }
 
-  if (callee === "greater") {
+  if (isBuiltinTemplateComparatorName(callee)) {
     pushError(context, line, col, "'greater' was not declared in this scope");
     return null;
   }
@@ -828,11 +846,9 @@ function validateRangeBuiltin(
   } else if (callee === "sort" && args[2] !== undefined) {
     const comparator = args[2];
     if (
-      !(
-        comparator.kind === "CallExpr" &&
-        comparator.callee === "greater" &&
-        comparator.args.length === 0
-      )
+      !(comparator.kind === "CallExpr" &&
+        isBuiltinTemplateComparatorName(comparator.callee) &&
+        comparator.args.length === 0)
     ) {
       pushError(context, comparator.line, comparator.col, "unsupported sort comparator");
     }
@@ -848,7 +864,7 @@ function validateVectorRangeArgs(
   context: ValidationContext,
   line: number,
   col: number,
-): Extract<TypeNode, { kind: "VectorType" }> | null {
+): Extract<TypeNode, { kind: "TemplateType"; templateName: "vector" }> | null {
   if (
     beginExpr === undefined ||
     endExpr === undefined ||
@@ -877,7 +893,7 @@ function validateVectorRangeArgs(
   if (receiverType === null) {
     return null;
   }
-  if (receiverType.kind !== "VectorType") {
+  if (!isVectorType(receiverType)) {
     pushError(context, line, col, `${callee} requires a vector range`);
     return null;
   }
@@ -899,8 +915,8 @@ function validateMethodCall(
     }
     return null;
   }
-  if (receiverType.kind !== "VectorType") {
-    if (receiverType.kind === "PairType") {
+  if (!isVectorType(receiverType)) {
+    if (isPairType(receiverType)) {
       if (method !== "first" && method !== "second") {
         pushError(context, line, col, `unknown pair member '${method}'`);
         for (const arg of args) {
@@ -1042,7 +1058,7 @@ function resolveConditionalType(
     return thenType;
   }
 
-  if (thenType.kind === "PairType" && elseType.kind === "PairType") {
+  if (isPairType(thenType) && isPairType(elseType)) {
     const firstType = resolveConditionalType(
       thenType.firstType,
       elseType.firstType,
@@ -1060,10 +1076,10 @@ function resolveConditionalType(
     if (firstType === null || secondType === null) {
       return null;
     }
-    return { kind: "PairType", firstType, secondType };
+    return pairType(firstType, secondType);
   }
 
-  if (thenType.kind === "TupleType" && elseType.kind === "TupleType") {
+  if (isTupleType(thenType) && isTupleType(elseType)) {
     if (thenType.elementTypes.length !== elseType.elementTypes.length) {
       pushError(
         context,
@@ -1092,7 +1108,7 @@ function resolveConditionalType(
       }
       elementTypes.push(resolvedElementType);
     }
-    return { kind: "TupleType", elementTypes };
+    return tupleType(elementTypes);
   }
 
   if (isPointerType(thenType) && isNullPointerType(elseType)) {
@@ -1126,72 +1142,72 @@ function resolveConditionalType(
 }
 
 function sameType(left: TypeNode, right: TypeNode): boolean {
-  if (left.kind !== right.kind) {
-    return false;
+  if (isPrimitiveType(left) || isPrimitiveType(right)) {
+    return isPrimitiveType(left) && isPrimitiveType(right) && left.name === right.name;
   }
-  switch (left.kind) {
-    case "PrimitiveType":
-      return left.name === (right as PrimitiveTypeNode).name;
-    case "ArrayType":
-      return sameType(
-        left.elementType,
-        (right as Extract<TypeNode, { kind: "ArrayType" }>).elementType,
-      );
-    case "VectorType":
-      return sameType(
-        left.elementType,
-        (right as Extract<TypeNode, { kind: "VectorType" }>).elementType,
-      );
-    case "MapType":
-      return (
-        sameType(left.keyType, (right as Extract<TypeNode, { kind: "MapType" }>).keyType) &&
-        sameType(left.valueType, (right as Extract<TypeNode, { kind: "MapType" }>).valueType)
-      );
-    case "PairType":
-      return (
-        sameType(left.firstType, (right as Extract<TypeNode, { kind: "PairType" }>).firstType) &&
-        sameType(left.secondType, (right as Extract<TypeNode, { kind: "PairType" }>).secondType)
-      );
-    case "TupleType": {
-      const rightTuple = right as Extract<TypeNode, { kind: "TupleType" }>;
-      return (
-        left.elementTypes.length === rightTuple.elementTypes.length &&
-        left.elementTypes.every((elementType, index) => {
-          const rightElementType = rightTuple.elementTypes[index];
-          return rightElementType !== undefined && sameType(elementType, rightElementType);
-        })
-      );
-    }
-    case "PointerType":
-      return sameType(
-        left.pointeeType,
-        (right as Extract<TypeNode, { kind: "PointerType" }>).pointeeType,
-      );
-    case "ReferenceType":
-      return sameType(
-        left.referredType,
-        (right as Extract<TypeNode, { kind: "ReferenceType" }>).referredType,
-      );
+  if (isArrayType(left) || isArrayType(right)) {
+    return isArrayType(left) && isArrayType(right) && sameType(left.elementType, right.elementType);
   }
+  if (isVectorType(left) || isVectorType(right)) {
+    return isVectorType(left) && isVectorType(right) && sameType(left.elementType, right.elementType);
+  }
+  if (isMapType(left) || isMapType(right)) {
+    return (
+      isMapType(left) &&
+      isMapType(right) &&
+      sameType(left.keyType, right.keyType) &&
+      sameType(left.valueType, right.valueType)
+    );
+  }
+  if (isPairType(left) || isPairType(right)) {
+    return (
+      isPairType(left) &&
+      isPairType(right) &&
+      sameType(left.firstType, right.firstType) &&
+      sameType(left.secondType, right.secondType)
+    );
+  }
+  if (isTupleType(left) || isTupleType(right)) {
+    return (
+      isTupleType(left) &&
+      isTupleType(right) &&
+      left.elementTypes.length === right.elementTypes.length &&
+      left.elementTypes.every((elementType, index) => {
+        const rightElementType = right.elementTypes[index];
+        return rightElementType !== undefined && sameType(elementType, rightElementType);
+      })
+    );
+  }
+  if (isPointerType(left) || isPointerType(right)) {
+    return isPointerType(left) && isPointerType(right) && sameType(left.pointeeType, right.pointeeType);
+  }
+  if (isReferenceType(left) || isReferenceType(right)) {
+    return (
+      isReferenceType(left) &&
+      isReferenceType(right) &&
+      sameType(left.referredType, right.referredType)
+    );
+  }
+  return false;
 }
 
 function isAssignable(source: TypeNode, target: TypeNode): boolean {
   if (sameType(source, target)) {
     return true;
   }
-  if (source.kind === "PairType" && target.kind === "PairType") {
+  if (isPairType(source) && isPairType(target)) {
     return (
       isAssignable(source.firstType, target.firstType) &&
       isAssignable(source.secondType, target.secondType)
     );
   }
-  if (source.kind === "MapType" && target.kind === "MapType") {
+  if (isMapType(source) && isMapType(target)) {
     return (
       isAssignable(source.keyType, target.keyType) &&
       isAssignable(source.valueType, target.valueType)
     );
   }
-  if (source.kind === "TupleType" && target.kind === "TupleType") {
+  if (isTupleType(source) && isTupleType(target)) {
     return (
       source.elementTypes.length === target.elementTypes.length &&
       source.elementTypes.every((elementType, index) => {
@@ -1262,26 +1278,29 @@ function containsVoid(type: TypeNode): boolean {
   if (isPrimitiveType(type)) {
     return type.name === "void";
   }
-  if (type.kind === "PointerType") {
+  if (isPointerType(type)) {
     return containsVoid(type.pointeeType);
   }
-  if (type.kind === "ReferenceType") {
+  if (isReferenceType(type)) {
     return containsVoid(type.referredType);
   }
-  if (type.kind === "PairType") {
+  if (isPairType(type)) {
     return containsVoid(type.firstType) || containsVoid(type.secondType);
   }
-  if (type.kind === "MapType") {
+  if (isMapType(type)) {
     return containsVoid(type.keyType) || containsVoid(type.valueType);
   }
-  if (type.kind === "TupleType") {
+  if (isTupleType(type)) {
     return type.elementTypes.some((elementType) => containsVoid(elementType));
   }
-  return containsVoid(type.elementType);
+  if (isArrayType(type) || isVectorType(type)) {
+    return containsVoid(type.elementType);
+  }
+  return false;
 }
 
 function baseElementType(type: TypeNode): TypeNode {
-  if (type.kind === "ArrayType") {
+  if (isArrayType(type)) {
     return baseElementType(type.elementType);
   }
   return type;
@@ -1291,33 +1310,33 @@ function unwrapReference(type: TypeNode | null): TypeNode | null {
   if (type === null) {
     return null;
   }
-  return type.kind === "ReferenceType" ? type.referredType : type;
+  return isReferenceType(type) ? type.referredType : type;
 }
 
 function containsReferenceBelowTopLevel(type: TypeNode): boolean {
-  if (type.kind === "ReferenceType") {
+  if (isReferenceType(type)) {
     return false;
   }
   return containsReferenceNested(type);
 }
 
 function containsReferenceNested(type: TypeNode): boolean {
-  if (type.kind === "ReferenceType") {
+  if (isReferenceType(type)) {
     return true;
   }
-  if (type.kind === "PointerType") {
+  if (isPointerType(type)) {
     return containsReferenceNested(type.pointeeType);
   }
-  if (type.kind === "PairType") {
+  if (isPairType(type)) {
     return containsReferenceNested(type.firstType) || containsReferenceNested(type.secondType);
   }
-  if (type.kind === "MapType") {
+  if (isMapType(type)) {
     return containsReferenceNested(type.keyType) || containsReferenceNested(type.valueType);
   }
-  if (type.kind === "TupleType") {
+  if (isTupleType(type)) {
     return type.elementTypes.some((elementType) => containsReferenceNested(elementType));
   }
-  if (type.kind === "ArrayType" || type.kind === "VectorType") {
+  if (isArrayType(type) || isVectorType(type)) {
     return containsReferenceNested(type.elementType);
   }
   return false;
@@ -1371,7 +1390,7 @@ function validateArgumentAgainstParam(
     return;
   }
   if (
-    paramType.kind === "PointerType" &&
+    isPointerType(paramType) &&
     arg.kind === "Literal" &&
     arg.valueType === "int" &&
     arg.value === 0n
@@ -1387,15 +1406,11 @@ function getIterableElementType(
   col: number,
   context: ValidationContext,
 ): TypeNode | null {
-  if (sourceType.kind === "ArrayType" || sourceType.kind === "VectorType") {
+  if (isArrayType(sourceType) || isVectorType(sourceType)) {
     return sourceType.elementType;
   }
-  if (sourceType.kind === "MapType") {
-    return {
-      kind: "PairType",
-      firstType: sourceType.keyType,
-      secondType: sourceType.valueType,
-    };
+  if (isMapType(sourceType)) {
+    return pairType(sourceType.keyType, sourceType.valueType);
   }
   if (isStringType(sourceType)) {
     return { kind: "PrimitiveType", name: "char" };

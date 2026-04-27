@@ -8,6 +8,12 @@
 - 競プロ頻出の断片は、一般化が重くても `vector` / `pair` と同じく組み込み機能として先に実装してよい
 - 実装対象が広すぎる場合は、`SPECIFICATION.md` を増やす前に `IMPLEMENTATION_DIRECTIVES.md` の受け入れ条件を具体化する
 
+## テンプレート実装
+
+- 完全なテンプレート実装は個別の特別扱い追加ではなく、`ai-docs/TEMPLATE_ROADMAP.md` の段階に沿って進める
+- `vector` / `map` / `pair` / `tuple` / `greater` / `make_pair` / `make_tuple` の名前やメタデータは `src/stdlib/` に寄せる
+- 新しいテンプレート対応を入れるとき、parser / validator / evaluator に同じ文字列リテラルを散らさない
+
 ## ディレクトリ構造
 
 ```

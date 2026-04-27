@@ -1,3 +1,4 @@
+import { isUnsupportedTemplateTypeName } from "@/stdlib/registry";
 import type {
   ArrayDeclNode,
   AssignTargetNode,
@@ -9,14 +10,8 @@ import type {
   VarDeclNode,
   VectorDeclNode,
 } from "@/types";
+import { isVectorType } from "@/types";
 import { BaseParserTypeSupport } from "./type-support";
-
-const UNSUPPORTED_TEMPLATE_TYPES = new Set<string>([
-  "unordered_map",
-  "priority_queue",
-  "set",
-  "unordered_set",
-]);
 
 export abstract class BaseParserSupport extends BaseParserTypeSupport {
   protected parseForInit(): ForInitNode {
@@ -132,7 +127,7 @@ export abstract class BaseParserSupport extends BaseParserTypeSupport {
         false,
       );
     }
-    if (declarator.type.kind === "VectorType") {
+    if (isVectorType(declarator.type)) {
       return this.finishVectorDecl(declarator.type, declarator.nameToken, false);
     }
     return this.parseSingleVarDeclarator(declarator.type, declarator.nameToken);
@@ -270,7 +265,7 @@ export abstract class BaseParserSupport extends BaseParserTypeSupport {
 
   protected isUnsupportedTemplateTypeDeclarationStart(): boolean {
     const token = this.peek();
-    if (token.kind !== "identifier" || !UNSUPPORTED_TEMPLATE_TYPES.has(token.text)) {
+    if (token.kind !== "identifier" || !isUnsupportedTemplateTypeName(token.text)) {
       return false;
     }
     const next = this.tokens[this.index + 1];

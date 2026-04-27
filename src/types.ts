@@ -17,25 +17,35 @@ export type ArrayTypeNode = {
   elementType: TypeNode;
 };
 
-export type VectorTypeNode = {
-  kind: "VectorType";
+export type TemplateTypeNode = {
+  kind: "TemplateType";
+  templateName: string;
+  templateArgs: TypeNode[];
+};
+
+export type VectorTypeNode = TemplateTypeNode & {
+  templateName: "vector";
+  templateArgs: [TypeNode];
   elementType: TypeNode;
 };
 
-export type MapTypeNode = {
-  kind: "MapType";
+export type MapTypeNode = TemplateTypeNode & {
+  templateName: "map";
+  templateArgs: [TypeNode, TypeNode];
   keyType: TypeNode;
   valueType: TypeNode;
 };
 
-export type PairTypeNode = {
-  kind: "PairType";
+export type PairTypeNode = TemplateTypeNode & {
+  templateName: "pair";
+  templateArgs: [TypeNode, TypeNode];
   firstType: TypeNode;
   secondType: TypeNode;
 };
 
-export type TupleTypeNode = {
-  kind: "TupleType";
+export type TupleTypeNode = TemplateTypeNode & {
+  templateName: "tuple";
+  templateArgs: TypeNode[];
   elementTypes: TypeNode[];
 };
 
@@ -52,6 +62,7 @@ export type ReferenceTypeNode = {
 export type TypeNode =
   | PrimitiveTypeNode
   | ArrayTypeNode
+  | TemplateTypeNode
   | VectorTypeNode
   | MapTypeNode
   | PairTypeNode
@@ -466,19 +477,41 @@ export function arrayType(elementType: TypeNode): ArrayTypeNode {
 }
 
 export function vectorType(elementType: TypeNode): VectorTypeNode {
-  return { kind: "VectorType", elementType };
+  return {
+    kind: "TemplateType",
+    templateName: "vector",
+    templateArgs: [elementType],
+    elementType,
+  };
 }
 
 export function mapType(keyType: TypeNode, valueType: TypeNode): MapTypeNode {
-  return { kind: "MapType", keyType, valueType };
+  return {
+    kind: "TemplateType",
+    templateName: "map",
+    templateArgs: [keyType, valueType],
+    keyType,
+    valueType,
+  };
 }
 
 export function pairType(firstType: TypeNode, secondType: TypeNode): PairTypeNode {
-  return { kind: "PairType", firstType, secondType };
+  return {
+    kind: "TemplateType",
+    templateName: "pair",
+    templateArgs: [firstType, secondType],
+    firstType,
+    secondType,
+  };
 }
 
 export function tupleType(elementTypes: TypeNode[]): TupleTypeNode {
-  return { kind: "TupleType", elementTypes };
+  return {
+    kind: "TemplateType",
+    templateName: "tuple",
+    templateArgs: [...elementTypes],
+    elementTypes,
+  };
 }
 
 export function pointerType(pointeeType: TypeNode): PointerTypeNode {
@@ -497,20 +530,24 @@ export function isArrayType(type: TypeNode): type is ArrayTypeNode {
   return type.kind === "ArrayType";
 }
 
+export function isTemplateType(type: TypeNode): type is TemplateTypeNode {
+  return type.kind === "TemplateType";
+}
+
 export function isVectorType(type: TypeNode): type is VectorTypeNode {
-  return type.kind === "VectorType";
+  return isTemplateType(type) && type.templateName === "vector";
 }
 
 export function isMapType(type: TypeNode): type is MapTypeNode {
-  return type.kind === "MapType";
+  return isTemplateType(type) && type.templateName === "map";
 }
 
 export function isPairType(type: TypeNode): type is PairTypeNode {
-  return type.kind === "PairType";
+  return isTemplateType(type) && type.templateName === "pair";
 }
 
 export function isTupleType(type: TypeNode): type is TupleTypeNode {
-  return type.kind === "TupleType";
+  return isTemplateType(type) && type.templateName === "tuple";
 }
 
 export function isPointerType(type: TypeNode): type is PointerTypeNode {
@@ -527,14 +564,10 @@ export function typeToString(type: TypeNode): string {
       return type.name;
     case "ArrayType":
       return `${typeToString(type.elementType)}[]`;
-    case "VectorType":
-      return `vector<${typeToString(type.elementType)}>`;
-    case "MapType":
-      return `map<${typeToString(type.keyType)}, ${typeToString(type.valueType)}>`;
-    case "PairType":
-      return `pair<${typeToString(type.firstType)}, ${typeToString(type.secondType)}>`;
-    case "TupleType":
-      return `tuple<${type.elementTypes.map((elementType) => typeToString(elementType)).join(", ")}>`;
+    case "TemplateType":
+      return `${type.templateName}<${type.templateArgs
+        .map((templateArg) => typeToString(templateArg))
+        .join(", ")}>`;
     case "PointerType":
       return `${typeToString(type.pointeeType)}*`;
     case "ReferenceType":

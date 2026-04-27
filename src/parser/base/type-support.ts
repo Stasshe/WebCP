@@ -1,3 +1,4 @@
+import { isSupportedTemplateTypeName } from "@/stdlib/registry";
 import type {
   ArrayDeclNode,
   PrimitiveTypeNode,
@@ -7,8 +8,12 @@ import type {
 } from "@/types";
 import {
   arrayType,
+  isMapType,
+  isPairType,
   mapType,
   isPrimitiveType,
+  isVectorType,
+  isTupleType,
   pairType,
   pointerType,
   primitiveType,
@@ -22,17 +27,9 @@ const TYPE_KEYWORDS = new Set<string>(["int", "long", "double", "bool", "char", 
 
 export abstract class BaseParserTypeSupport extends BaseParserCore {
   protected parseType(): TypeNode | null {
-    if (this.checkKeyword("vector")) {
-      return this.parseVectorType();
-    }
-    if (this.isMapTypeStart()) {
-      return this.parseMapType();
-    }
-    if (this.isPairTypeStart()) {
-      return this.parsePairType();
-    }
-    if (this.isTupleTypeStart()) {
-      return this.parseTupleType();
+    const templateTypeName = this.peekSupportedTemplateTypeName();
+    if (templateTypeName !== null) {
+      return this.parseKnownTemplateType(templateTypeName);
     }
     return this.parsePrimitiveType();
   }
@@ -100,10 +97,7 @@ export abstract class BaseParserTypeSupport extends BaseParserCore {
   protected override checkTypeStart(): boolean {
     return (
       this.peekPrimitiveTypeKeyword() ||
-      this.checkKeyword("vector") ||
-      this.isMapTypeStart() ||
-      this.isPairTypeStart() ||
-      this.isTupleTypeStart()
+      this.peekSupportedTemplateTypeName() !== null
     );
   }
 
@@ -125,16 +119,20 @@ export abstract class BaseParserTypeSupport extends BaseParserCore {
     if (type.kind === "ReferenceType") {
       return this.isVoidTypeNode(type.referredType);
     }
-    if (type.kind === "PairType") {
+    if (isPairType(type)) {
       return this.isVoidTypeNode(type.firstType) || this.isVoidTypeNode(type.secondType);
     }
-    if (type.kind === "MapType") {
+    if (isMapType(type)) {
       return this.isVoidTypeNode(type.keyType) || this.isVoidTypeNode(type.valueType);
     }
-    if (type.kind === "TupleType") {
+    if (isTupleType(type)) {
       return type.elementTypes.some((elementType) => this.isVoidTypeNode(elementType));
     }
-    return this.isVoidTypeNode(type.elementType);
+    if (type.kind === "ArrayType" || isVectorType(type)) {
+      return this.isVoidTypeNode(type.elementType);
+    }
+    this.errorAtCurrent("unsupported template type in void check");
+    return false;
   }
 
   protected consumeTypeClose(message: string): boolean {
@@ -182,37 +180,31 @@ export abstract class BaseParserTypeSupport extends BaseParserCore {
     return { nameToken, type: declaredType, dimensions };
   }
 
-  protected isPairTypeStart(): boolean {
+  protected peekSupportedTemplateTypeName(): "vector" | "map" | "pair" | "tuple" | null {
     const token = this.peek();
     const next = this.tokens[this.index + 1];
-    return (
+    if (
       token.kind === "identifier" &&
-      token.text === "pair" &&
+      isSupportedTemplateTypeName(token.text) &&
       next?.kind === "symbol" &&
       next.text === "<"
-    );
+    ) {
+      return token.text;
+    }
+    return null;
   }
 
-  protected isMapTypeStart(): boolean {
-    const token = this.peek();
-    const next = this.tokens[this.index + 1];
-    return (
-      token.kind === "identifier" &&
-      token.text === "map" &&
-      next?.kind === "symbol" &&
-      next.text === "<"
-    );
-  }
-
-  protected isTupleTypeStart(): boolean {
-    const token = this.peek();
-    const next = this.tokens[this.index + 1];
-    return (
-      token.kind === "identifier" &&
-      token.text === "tuple" &&
-      next?.kind === "symbol" &&
-      next.text === "<"
-    );
+  protected parseKnownTemplateType(name: "vector" | "map" | "pair" | "tuple"): TypeNode | null {
+    switch (name) {
+      case "vector":
+        return this.parseVectorType();
+      case "map":
+        return this.parseMapType();
+      case "pair":
+        return this.parsePairType();
+      case "tuple":
+        return this.parseTupleType();
+    }
   }
 
   protected parsePairType(): TypeNode | null {

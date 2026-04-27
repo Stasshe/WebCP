@@ -12,6 +12,7 @@ import type {
   RuntimeErrorInfo,
   StatementNode,
 } from "@/types";
+import { pairType } from "@/types";
 import type { RuntimeArgument } from "./evaluator";
 import { InterpreterEvaluator } from "./evaluator";
 import { buildDebugInfoView, type InterpreterOptions, PauseTrap, toRuntimeError } from "./runtime";
@@ -409,21 +410,13 @@ class Interpreter extends InterpreterEvaluator {
         kind: "reference",
         type: {
           kind: "ReferenceType",
-          referredType: {
-            kind: "PairType",
-            firstType: value.type.keyType,
-            secondType: value.type.valueType,
-          },
+          referredType: pairType(value.type.keyType, value.type.valueType),
         },
         target: {
           kind: "map",
           parent,
           entryIndex,
-          type: {
-            kind: "PairType",
-            firstType: value.type.keyType,
-            secondType: value.type.valueType,
-          },
+          type: pairType(value.type.keyType, value.type.valueType),
           access: "entry",
         },
       }));
