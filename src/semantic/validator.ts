@@ -1,26 +1,8 @@
 import {
-  describeBuiltinArity,
-  getBuiltinFreeFunctionSpec,
-  getBuiltinTemplateComparatorSpec,
   getSupportedTemplateTypeSpec,
 } from "@/stdlib/registry";
-import {
-  mapKeyType,
-  mapValueType,
-  pairFirstType,
-  pairSecondType,
-  tupleElementTypes,
-  vectorElementType,
-} from "@/stdlib/template-types";
-import {
-  getSingleIntTemplateArg,
-  getSingleTypeTemplateArg,
-  isTemplateNamed,
-  isTupleGetTemplateCall,
-} from "@/stdlib/template-exprs";
-import {
-  vectorType,
-} from "@/types";
+import { vectorElementType } from "@/stdlib/template-types";
+import { vectorType } from "@/types";
 import type {
   CompileError,
   ExprNode,
@@ -29,7 +11,6 @@ import type {
   RangeForStmtNode,
   StatementNode,
   TypeNode,
-  VectorTypeNode,
 } from "@/types";
 import {
   isArrayType,
@@ -41,17 +22,37 @@ import {
   isTupleType,
   isVectorType,
   pairType,
-  tupleType,
   typeToString,
 } from "@/types";
+import {
+  mapKeyType,
+  mapValueType,
+  pairFirstType,
+  pairSecondType,
+} from "@/stdlib/template-types";
+import { sameType, isAssignable, isAssignableExpr, inferBinaryType, resolveConditionalType } from "./type-compat";
+import {
+  isIntType,
+  isDoubleType,
+  isNumericType,
+  isBoolType,
+  isStringType,
+  isNullPointerConstantExpr,
+  isNullPointerType,
+  isInputTargetType,
+  containsVoid,
+  containsReferenceBelowTopLevel,
+  baseElementType,
+  unwrapReference,
+} from "./type-utils";
+import {
+  validateBuiltinCall,
+  validateTemplateCall,
+  validateMethodCall,
+  type ValidationContext,
+} from "./builtin-checker";
 
-type ValidationContext = {
-  errors: CompileError[];
-  functions: Map<string, FunctionDeclNode>;
-  scopes: Map<string, TypeNode>[];
-  loopDepth: number;
-  currentReturnType: TypeNode | null;
-};
+export { type ValidationContext };
 
 export function validateProgram(program: ProgramNode): CompileError[] {
   const { functions, errors } = collectFunctions(program);
@@ -85,11 +86,7 @@ function collectFunctions(program: ProgramNode): {
 
   for (const fn of program.functions) {
     if (functions.has(fn.name)) {
-      errors.push({
-        line: fn.line,
-        col: fn.col,
-        message: `redefinition of function '${fn.name}'`,
-      });
+      errors.push({ line: fn.line, col: fn.col, message: `redefinition of function '${fn.name}'` });
       continue;
     }
     functions.set(fn.name, fn);
@@ -149,9 +146,7 @@ function validateParameterType(
 function validateFunctionReturnType(fn: FunctionDeclNode, context: ValidationContext): void {
   if (fn.returnType.kind === "ArrayType" || fn.returnType.kind === "ReferenceType") {
     pushError(
-      context,
-      fn.line,
-      fn.col,
+      context, fn.line, fn.col,
       `function return type cannot be ${fn.returnType.kind === "ArrayType" ? "array" : "reference"}`,
     );
   }
@@ -258,12 +253,7 @@ function validateDecl(
   switch (stmt.kind) {
     case "VarDecl":
       if (isArrayType(stmt.type) || isVectorType(stmt.type)) {
-        pushError(
-          context,
-          stmt.line,
-          stmt.col,
-          `variable type cannot be '${typeToString(stmt.type)}'`,
-        );
+        pushError(context, stmt.line, stmt.col, `variable type cannot be '${typeToString(stmt.type)}'`);
       } else if (containsVoid(stmt.type)) {
         pushError(context, stmt.line, stmt.col, "variable type cannot be void");
       }
@@ -325,9 +315,7 @@ function validateRangeFor(stmt: RangeForStmtNode, context: ValidationContext): v
 
   if (!isAssignable(elementType ?? itemType, itemType)) {
     pushError(
-      context,
-      stmt.line,
-      stmt.col,
+      context, stmt.line, stmt.col,
       `cannot convert '${typeToString(elementType ?? itemType)}' to '${typeToString(itemType)}'`,
     );
   }
@@ -336,9 +324,7 @@ function validateRangeFor(stmt: RangeForStmtNode, context: ValidationContext): v
   defineSymbol(
     stmt.itemName,
     stmt.itemByReference ? { kind: "ReferenceType", referredType: itemType } : itemType,
-    stmt.line,
-    stmt.col,
-    context,
+    stmt.line, stmt.col, context,
   );
   validateBlock(stmt.body.statements, context);
   popScope(context);
@@ -352,33 +338,20 @@ function validateReturn(
   if (returnType === null) {
     return;
   }
-
   if (isPrimitiveType(returnType) && returnType.name === "void") {
     if (stmt.value !== null) {
-      pushError(
-        context,
-        stmt.line,
-        stmt.col,
-        "return-statement with a value, in function returning 'void'",
-      );
+      pushError(context, stmt.line, stmt.col, "return-statement with a value, in function returning 'void'");
     }
     return;
   }
-
   if (stmt.value === null) {
-    pushError(
-      context,
-      stmt.line,
-      stmt.col,
-      "return-statement with no value, in function returning non-void",
-    );
+    pushError(context, stmt.line, stmt.col, "return-statement with no value, in function returning non-void");
     return;
   }
-
   validateExpr(stmt.value, context, returnType);
 }
 
-function validateExpr(
+export function validateExpr(
   expr: ExprNode | null,
   context: ValidationContext,
   expected?: TypeNode | "bool" | "int",
@@ -386,7 +359,6 @@ function validateExpr(
   if (expr === null) {
     return null;
   }
-
   const type = inferExprType(expr, context);
   if (type !== null && expected !== undefined) {
     const expectedType = normalizeExpectedType(expected);
@@ -395,9 +367,7 @@ function validateExpr(
     }
     if (!isAssignable(type, expectedType)) {
       pushError(
-        context,
-        expr.line,
-        expr.col,
+        context, expr.line, expr.col,
         `cannot convert '${typeToString(type)}' to '${typeToString(expectedType)}'`,
       );
     }
@@ -412,32 +382,20 @@ function validateConditionExpr(expr: ExprNode, context: ValidationContext): void
   }
 }
 
-function inferExprType(expr: ExprNode, context: ValidationContext): TypeNode | null {
+export function inferExprType(expr: ExprNode, context: ValidationContext): TypeNode | null {
   switch (expr.kind) {
     case "Literal":
-      if (expr.valueType === "int") {
-        return { kind: "PrimitiveType", name: "int" };
-      }
-      if (expr.valueType === "double") {
-        return { kind: "PrimitiveType", name: "double" };
-      }
-      if (expr.valueType === "bool") {
-        return { kind: "PrimitiveType", name: "bool" };
-      }
-      if (expr.valueType === "char") {
-        return { kind: "PrimitiveType", name: "char" };
-      }
+      if (expr.valueType === "int") return { kind: "PrimitiveType", name: "int" };
+      if (expr.valueType === "double") return { kind: "PrimitiveType", name: "double" };
+      if (expr.valueType === "bool") return { kind: "PrimitiveType", name: "bool" };
+      if (expr.valueType === "char") return { kind: "PrimitiveType", name: "char" };
       return { kind: "PrimitiveType", name: "string" };
     case "Identifier":
-      if (expr.name === "endl") {
-        return { kind: "PrimitiveType", name: "string" };
-      }
+      if (expr.name === "endl") return { kind: "PrimitiveType", name: "string" };
       return unwrapReference(resolveSymbol(expr.name, expr.line, expr.col, context));
     case "IndexExpr": {
       const targetType = inferExprType(expr.target, context);
-      if (targetType === null) {
-        return null;
-      }
+      if (targetType === null) return null;
       if (isStringType(targetType)) {
         validateExpr(expr.index, context, "int");
         return { kind: "PrimitiveType", name: "char" };
@@ -458,18 +416,16 @@ function inferExprType(expr: ExprNode, context: ValidationContext): TypeNode | n
       return targetType === null ? null : { kind: "PointerType", pointeeType: targetType };
     }
     case "DerefExpr": {
-      const pointerType = inferExprType(expr.pointer, context);
-      if (pointerType === null) {
-        return null;
-      }
-      if (pointerType.kind !== "PointerType") {
+      const ptrType = inferExprType(expr.pointer, context);
+      if (ptrType === null) return null;
+      if (ptrType.kind !== "PointerType") {
         pushError(context, expr.line, expr.col, "type mismatch: expected pointer");
         return null;
       }
-      return pointerType.pointeeType;
+      return ptrType.pointeeType;
     }
     case "TemplateIdExpr":
-      if (getBuiltinTemplateComparatorSpec(expr.template) !== null) {
+      if (getSupportedTemplateTypeSpec(expr.template) !== null) {
         return null;
       }
       pushError(context, expr.line, expr.col, `'${typeToString({ kind: "NamedType", name: expr.template })}' does not name a value`);
@@ -507,7 +463,10 @@ function inferExprType(expr: ExprNode, context: ValidationContext): TypeNode | n
       validateConditionExpr(expr.condition, context);
       const thenType = validateExpr(expr.thenExpr, context);
       const elseType = validateExpr(expr.elseExpr, context);
-      const resultType = resolveConditionalType(thenType, elseType, expr.line, expr.col, context);
+      const resultType = resolveConditionalType(
+        thenType, elseType, expr.line, expr.col,
+        (line, col, msg) => pushError(context, line, col, msg),
+      );
       expr.resolvedType = resultType;
       return resultType;
     }
@@ -546,206 +505,18 @@ function inferExprType(expr: ExprNode, context: ValidationContext): TypeNode | n
     case "BinaryExpr": {
       const left = inferExprType(expr.left, context);
       const right = inferExprType(expr.right, context);
-      return inferBinaryType(expr, left, right, context);
+      return inferBinaryType(expr, left, right, (line, col, msg) => pushError(context, line, col, msg));
     }
     case "CallExpr":
       return validateCall(expr.callee, expr.args, expr.line, expr.col, context);
     case "TemplateCallExpr":
-      return validateTemplateCall(expr, context);
+      return validateTemplateCall(expr, context, validateExpr, inferExprType);
     case "MethodCallExpr":
       return validateMethodCall(
-        expr.receiver,
-        expr.method,
-        expr.args,
-        expr.line,
-        expr.col,
-        context,
+        expr.receiver, expr.method, expr.args, expr.line, expr.col,
+        context, validateExpr, inferExprType,
       );
   }
-}
-
-function validateTemplateCall(expr: Extract<ExprNode, { kind: "TemplateCallExpr" }>, context: ValidationContext): TypeNode | null {
-  if (isTemplateNamed(expr.callee, "get")) {
-    const index = getSingleIntTemplateArg(expr.callee);
-    if (index === null) {
-      pushError(context, expr.line, expr.col, "get requires a single non-negative integer template argument");
-      return null;
-    }
-    const tupleExpr = expr.args[0];
-    const tupleType = tupleExpr === undefined ? null : inferExprType(tupleExpr, context);
-    if (expr.args.length !== 1) {
-      pushError(context, expr.line, expr.col, "get requires exactly 1 argument");
-    }
-    if (tupleType === null) {
-      return null;
-    }
-    if (!isTupleType(tupleType)) {
-      pushError(context, expr.line, expr.col, "type mismatch: expected tuple");
-      return null;
-    }
-    const elementTypes = tupleElementTypes(tupleType);
-    const elementType = elementTypes[index];
-    if (elementType === undefined) {
-      pushError(
-        context,
-        expr.line,
-        expr.col,
-        `tuple index ${index.toString()} out of range for tuple of size ${elementTypes.length}`,
-      );
-      return null;
-    }
-    return elementType;
-  }
-
-  if (getBuiltinTemplateComparatorSpec(expr.callee.template) !== null) {
-    return null;
-  }
-
-  if (getSupportedTemplateTypeSpec(expr.callee.template) !== null) {
-    if (expr.callee.template === "vector") {
-      const elementType = getSingleTypeTemplateArg(expr.callee);
-      if (elementType === null) {
-        pushError(context, expr.line, expr.col, "vector constructor requires exactly 1 type argument");
-        return null;
-      }
-      const vectorResult = vectorType(elementType);
-      if (expr.args.length >= 1) {
-        validateExpr(expr.args[0] ?? null, context, "int");
-      }
-      if (expr.args.length >= 2) {
-        validateExpr(expr.args[1] ?? null, context, vectorElementType(vectorResult));
-      }
-      if (expr.args.length > 2) {
-        pushError(context, expr.line, expr.col, "too many arguments for vector constructor");
-      }
-      return vectorResult;
-    }
-  }
-
-  pushError(context, expr.line, expr.col, `unsupported template call '${expr.callee.template}'`);
-  for (const arg of expr.args) {
-    validateExpr(arg, context);
-  }
-  return null;
-}
-
-function inferBinaryType(
-  expr: Extract<ExprNode, { kind: "BinaryExpr" }>,
-  left: TypeNode | null,
-  right: TypeNode | null,
-  context: ValidationContext,
-): TypeNode | null {
-  if (expr.operator === "+") {
-    if (left !== null && right !== null && isPointerType(left) && isIntType(right)) {
-      return left;
-    }
-    if (left !== null && right !== null && isIntType(left) && isPointerType(right)) {
-      return right;
-    }
-  }
-
-  if (expr.operator === "-") {
-    if (left !== null && right !== null && isPointerType(left) && isIntType(right)) {
-      return left;
-    }
-    if (left !== null && right !== null && isPointerType(left) && isPointerType(right)) {
-      if (!sameType(left, right)) {
-        pushError(context, expr.line, expr.col, "type mismatch in pointer subtraction");
-      }
-      return { kind: "PrimitiveType", name: "int" };
-    }
-  }
-
-  if (expr.operator === "&&" || expr.operator === "||") {
-    if (left !== null && !isBoolType(left)) {
-      pushError(context, expr.left.line, expr.left.col, "type mismatch: expected bool");
-    }
-    if (right !== null && !isBoolType(right)) {
-      pushError(context, expr.right.line, expr.right.col, "type mismatch: expected bool");
-    }
-    return { kind: "PrimitiveType", name: "bool" };
-  }
-
-  if (
-    expr.operator === "==" ||
-    expr.operator === "!=" ||
-    expr.operator === "<" ||
-    expr.operator === "<=" ||
-    expr.operator === ">" ||
-    expr.operator === ">="
-  ) {
-    if ((left !== null && isPointerType(left)) || (right !== null && isPointerType(right))) {
-      if (expr.operator !== "==" && expr.operator !== "!=") {
-        pushError(context, expr.line, expr.col, "pointer comparison only supports == and !=");
-      }
-      if (
-        left !== null &&
-        right !== null &&
-        !sameType(left, right) &&
-        !(isPointerType(left) && isNullPointerType(right)) &&
-        !(isPointerType(right) && isNullPointerType(left))
-      ) {
-        pushError(context, expr.line, expr.col, "type mismatch in comparison");
-      }
-      return { kind: "PrimitiveType", name: "bool" };
-    }
-    if (
-      (left !== null && (isPairType(left) || isTupleType(left))) ||
-      (right !== null && (isPairType(right) || isTupleType(right)))
-    ) {
-      pushError(context, expr.line, expr.col, "tuple/pair comparison is not supported");
-      return { kind: "PrimitiveType", name: "bool" };
-    }
-    if (
-      left !== null &&
-      right !== null &&
-      !sameType(left, right) &&
-      !(isNumericType(left) && isNumericType(right))
-    ) {
-      pushError(context, expr.line, expr.col, "type mismatch in comparison");
-    }
-    return { kind: "PrimitiveType", name: "bool" };
-  }
-
-  if (
-    expr.operator === "+" &&
-    left !== null &&
-    right !== null &&
-    isStringType(left) &&
-    isStringType(right)
-  ) {
-    return { kind: "PrimitiveType", name: "string" };
-  }
-
-  if (
-    expr.operator === "<<" ||
-    expr.operator === ">>" ||
-    expr.operator === "&" ||
-    expr.operator === "^" ||
-    expr.operator === "|"
-  ) {
-    if (left !== null && !isIntType(left)) {
-      pushError(context, expr.left.line, expr.left.col, "type mismatch: expected int");
-    }
-    if (right !== null && !isIntType(right)) {
-      pushError(context, expr.right.line, expr.right.col, "type mismatch: expected int");
-    }
-    return { kind: "PrimitiveType", name: "int" };
-  }
-
-  if (left !== null && !isNumericType(left)) {
-    pushError(context, expr.left.line, expr.left.col, "type mismatch: expected numeric");
-  }
-  if (right !== null && !isNumericType(right)) {
-    pushError(context, expr.right.line, expr.right.col, "type mismatch: expected numeric");
-  }
-  if (left !== null && isDoubleType(left)) {
-    return { kind: "PrimitiveType", name: "double" };
-  }
-  if (right !== null && isDoubleType(right)) {
-    return { kind: "PrimitiveType", name: "double" };
-  }
-  return { kind: "PrimitiveType", name: "int" };
 }
 
 function validateCall(
@@ -762,20 +533,16 @@ function validateCall(
     } else if (args.length > fn.params.length) {
       pushError(context, line, col, `too many arguments to function '${callee}'`);
     }
-
     for (let i = 0; i < args.length; i += 1) {
       const arg = args[i];
       const param = fn.params[i];
-      if (arg === undefined) {
-        continue;
-      }
+      if (arg === undefined) continue;
       validateArgumentAgainstParam(arg, param?.type, context);
     }
-
     return fn.returnType;
   }
 
-  const builtin = validateBuiltinCall(callee, args, line, col, context);
+  const builtin = validateBuiltinCall(callee, args, line, col, context, validateExpr, inferExprType);
   if (builtin !== undefined) {
     return builtin;
   }
@@ -785,294 +552,6 @@ function validateCall(
     validateExpr(arg, context);
   }
   return null;
-}
-
-function validateBuiltinCall(
-  callee: string,
-  args: ExprNode[],
-  line: number,
-  col: number,
-  context: ValidationContext,
-): TypeNode | null | undefined {
-  const builtin = getBuiltinFreeFunctionSpec(callee);
-  if (builtin === null) {
-    return undefined;
-  }
-
-  switch (builtin.kind) {
-    case "value_function":
-      switch (builtin.name) {
-        case "abs":
-          if (args.length !== builtin.maxArgs) {
-            pushError(
-              context,
-              line,
-              col,
-              `${builtin.name} requires ${describeBuiltinArity(builtin)} argument`,
-            );
-          }
-          validateExpr(args[0] ?? null, context, "int");
-          return { kind: "PrimitiveType", name: "int" };
-        case "max":
-        case "min":
-          if (args.length !== builtin.maxArgs) {
-            pushError(
-              context,
-              line,
-              col,
-              `${builtin.name} requires ${describeBuiltinArity(builtin)} arguments`,
-            );
-          }
-          validateExpr(args[0] ?? null, context, "int");
-          validateExpr(args[1] ?? null, context, "int");
-          return { kind: "PrimitiveType", name: "int" };
-        case "swap": {
-          if (args.length !== builtin.maxArgs) {
-            pushError(
-              context,
-              line,
-              col,
-              `${builtin.name} requires ${describeBuiltinArity(builtin)} arguments`,
-            );
-          }
-          const left = args[0];
-          const right = args[1];
-          if (left !== undefined) {
-            const leftType = validateExpr(left, context);
-            if (!isAssignableExpr(left)) {
-              pushError(context, left.line, left.col, "swap arguments must be lvalues");
-            }
-            if (right !== undefined) {
-              const rightType = validateExpr(right, context, leftType ?? undefined);
-              if (!isAssignableExpr(right)) {
-                pushError(context, right.line, right.col, "swap arguments must be lvalues");
-              }
-              if (leftType !== null && rightType !== null && !isAssignable(rightType, leftType)) {
-                pushError(
-                  context,
-                  line,
-                  col,
-                  `cannot convert '${typeToString(rightType)}' to '${typeToString(leftType)}'`,
-                );
-              }
-            }
-          } else if (right !== undefined) {
-            validateExpr(right, context);
-          }
-          return { kind: "PrimitiveType", name: "void" };
-        }
-      }
-      break;
-    case "template_factory":
-      switch (builtin.name) {
-        case "make_pair": {
-          if (args.length !== builtin.maxArgs) {
-            pushError(
-              context,
-              line,
-              col,
-              `${builtin.name} requires ${describeBuiltinArity(builtin)} arguments`,
-            );
-          }
-          const firstType = validateExpr(args[0] ?? null, context);
-          const secondType = validateExpr(args[1] ?? null, context);
-          if (firstType === null || secondType === null) {
-            return null;
-          }
-          return pairType(firstType, secondType);
-        }
-        case "make_tuple": {
-          if (args.length < builtin.minArgs) {
-            pushError(
-              context,
-              line,
-              col,
-              `${builtin.name} requires ${describeBuiltinArity(builtin)} arguments`,
-            );
-            return null;
-          }
-          const elementTypes: TypeNode[] = [];
-          for (const arg of args) {
-            const elementType = validateExpr(arg, context);
-            if (elementType === null) {
-              return null;
-            }
-            elementTypes.push(elementType);
-          }
-          return tupleType(elementTypes);
-        }
-      }
-      break;
-    case "range_algorithm":
-      return validateRangeBuiltin(builtin, args, line, col, context);
-    case "template_comparator":
-      pushError(context, line, col, `'${builtin.name}' was not declared in this scope`);
-      return null;
-  }
-
-  return undefined;
-}
-
-function validateRangeBuiltin(
-  builtin: Extract<ReturnType<typeof getBuiltinFreeFunctionSpec>, { kind: "range_algorithm" }>,
-  args: ExprNode[],
-  line: number,
-  col: number,
-  context: ValidationContext,
-): TypeNode | null {
-  if (args.length < builtin.minArgs || args.length > builtin.maxArgs) {
-    pushError(
-      context,
-      line,
-      col,
-      `${builtin.name} requires ${describeBuiltinArity(builtin)} arguments`,
-    );
-  }
-
-  const rangeType = validateVectorRangeArgs(args[0], args[1], builtin.name, context, line, col);
-
-  if (builtin.name === "fill") {
-    validateExpr(args[2] ?? null, context, rangeType === null ? undefined : vectorElementType(rangeType));
-  } else if (builtin.name === "sort" && args[2] !== undefined) {
-    const comparator = args[2];
-    if (
-      !(comparator.kind === "TemplateCallExpr" &&
-        getBuiltinTemplateComparatorSpec(comparator.callee.template) !== null &&
-        comparator.args.length === 0)
-    ) {
-      pushError(context, comparator.line, comparator.col, "unsupported sort comparator");
-    }
-  }
-
-  return { kind: "PrimitiveType", name: "void" };
-}
-
-function validateVectorRangeArgs(
-  beginExpr: ExprNode | undefined,
-  endExpr: ExprNode | undefined,
-  callee: string,
-  context: ValidationContext,
-  line: number,
-  col: number,
-): VectorTypeNode | null {
-  if (
-    beginExpr === undefined ||
-    endExpr === undefined ||
-    beginExpr.kind !== "MethodCallExpr" ||
-    endExpr.kind !== "MethodCallExpr" ||
-    beginExpr.method !== "begin" ||
-    endExpr.method !== "end" ||
-    beginExpr.args.length !== 0 ||
-    endExpr.args.length !== 0
-  ) {
-    pushError(context, line, col, `${callee} requires vector begin/end iterators`);
-    if (beginExpr !== undefined) {
-      validateExpr(beginExpr, context);
-    }
-    if (endExpr !== undefined) {
-      validateExpr(endExpr, context);
-    }
-    return null;
-  }
-
-  if (!sameReceiver(beginExpr.receiver, endExpr.receiver)) {
-    pushError(context, line, col, `${callee} requires iterators from the same vector`);
-  }
-
-  const receiverType = inferExprType(beginExpr.receiver, context);
-  if (receiverType === null) {
-    return null;
-  }
-  if (!isVectorType(receiverType)) {
-    pushError(context, line, col, `${callee} requires a vector range`);
-    return null;
-  }
-  return receiverType;
-}
-
-function validateMethodCall(
-  receiver: ExprNode,
-  method: string,
-  args: ExprNode[],
-  line: number,
-  col: number,
-  context: ValidationContext,
-): TypeNode | null {
-  const receiverType = inferExprType(receiver, context);
-  if (receiverType === null) {
-    for (const arg of args) {
-      validateExpr(arg, context);
-    }
-    return null;
-  }
-  if (!isVectorType(receiverType)) {
-    if (isPairType(receiverType)) {
-      if (method !== "first" && method !== "second") {
-        pushError(context, line, col, `unknown pair member '${method}'`);
-        for (const arg of args) {
-          validateExpr(arg, context);
-        }
-        return null;
-      }
-      if (args.length !== 0) {
-        pushError(context, line, col, `${method} requires no arguments`);
-      }
-      return method === "first" ? pairFirstType(receiverType) : pairSecondType(receiverType);
-    }
-    pushError(context, line, col, "type mismatch: expected array/vector/pair");
-    for (const arg of args) {
-      validateExpr(arg, context);
-    }
-    return null;
-  }
-
-  switch (method) {
-    case "begin":
-    case "end":
-      if (args.length !== 0) {
-        pushError(context, line, col, `${method} requires no arguments`);
-      }
-      return receiverType;
-    case "push_back":
-      if (args.length !== 1) {
-        pushError(context, line, col, "push_back requires exactly 1 argument");
-      }
-      validateExpr(args[0] ?? null, context, vectorElementType(receiverType));
-      return { kind: "PrimitiveType", name: "void" };
-    case "pop_back":
-    case "clear":
-      if (args.length !== 0) {
-        pushError(context, line, col, `${method} requires no arguments`);
-      }
-      return { kind: "PrimitiveType", name: "void" };
-    case "size":
-      if (args.length !== 0) {
-        pushError(context, line, col, "size requires no arguments");
-      }
-      return { kind: "PrimitiveType", name: "int" };
-    case "back":
-      if (args.length !== 0) {
-        pushError(context, line, col, "back requires no arguments");
-      }
-      return vectorElementType(receiverType);
-    case "empty":
-      if (args.length !== 0) {
-        pushError(context, line, col, "empty requires no arguments");
-      }
-      return { kind: "PrimitiveType", name: "bool" };
-    case "resize":
-      if (args.length !== 1) {
-        pushError(context, line, col, "resize requires exactly 1 argument");
-      }
-      validateExpr(args[0] ?? null, context, "int");
-      return { kind: "PrimitiveType", name: "void" };
-    default:
-      pushError(context, line, col, `unknown vector method '${method}'`);
-      for (const arg of args) {
-        validateExpr(arg, context);
-      }
-      return null;
-  }
 }
 
 function resolveSymbol(
@@ -1099,9 +578,7 @@ function defineSymbol(
   context: ValidationContext,
 ): void {
   const scope = context.scopes[context.scopes.length - 1];
-  if (scope === undefined) {
-    return;
-  }
+  if (scope === undefined) return;
   if (scope.has(name)) {
     pushError(context, line, col, `redefinition of '${name}'`);
     return;
@@ -1124,328 +601,9 @@ function validateLoopBody(statements: StatementNode[], context: ValidationContex
 }
 
 function normalizeExpectedType(expected: TypeNode | "bool" | "int"): TypeNode {
-  if (expected === "bool") {
-    return { kind: "PrimitiveType", name: "bool" };
-  }
-  if (expected === "int") {
-    return { kind: "PrimitiveType", name: "int" };
-  }
+  if (expected === "bool") return { kind: "PrimitiveType", name: "bool" };
+  if (expected === "int") return { kind: "PrimitiveType", name: "int" };
   return expected;
-}
-
-function resolveConditionalType(
-  thenType: TypeNode | null,
-  elseType: TypeNode | null,
-  line: number,
-  col: number,
-  context: ValidationContext,
-): TypeNode | null {
-  if (thenType === null || elseType === null) {
-    return null;
-  }
-
-  if (sameType(thenType, elseType)) {
-    return thenType;
-  }
-
-  if (isPairType(thenType) && isPairType(elseType)) {
-    const firstType = resolveConditionalType(
-      pairFirstType(thenType),
-      pairFirstType(elseType),
-      line,
-      col,
-      context,
-    );
-    const secondType = resolveConditionalType(
-      pairSecondType(thenType),
-      pairSecondType(elseType),
-      line,
-      col,
-      context,
-    );
-    if (firstType === null || secondType === null) {
-      return null;
-    }
-    return pairType(firstType, secondType);
-  }
-
-  if (isTupleType(thenType) && isTupleType(elseType)) {
-    const thenElements = tupleElementTypes(thenType);
-    const elseElements = tupleElementTypes(elseType);
-    if (thenElements.length !== elseElements.length) {
-      pushError(
-        context,
-        line,
-        col,
-        `incompatible operand types for ?: '${typeToString(thenType)}' and '${typeToString(elseType)}'`,
-      );
-      return null;
-    }
-    const elementTypes: TypeNode[] = [];
-    for (let i = 0; i < thenElements.length; i += 1) {
-      const leftElement = thenElements[i];
-      const rightElement = elseElements[i];
-      if (leftElement === undefined || rightElement === undefined) {
-        return null;
-      }
-      const resolvedElementType = resolveConditionalType(
-        leftElement,
-        rightElement,
-        line,
-        col,
-        context,
-      );
-      if (resolvedElementType === null) {
-        return null;
-      }
-      elementTypes.push(resolvedElementType);
-    }
-    return tupleType(elementTypes);
-  }
-
-  if (isPointerType(thenType) && isNullPointerType(elseType)) {
-    return thenType;
-  }
-  if (isPointerType(elseType) && isNullPointerType(thenType)) {
-    return elseType;
-  }
-
-  if (isNumericType(thenType) && isNumericType(elseType)) {
-    if (isDoubleType(thenType) || isDoubleType(elseType)) {
-      return { kind: "PrimitiveType", name: "double" };
-    }
-    return { kind: "PrimitiveType", name: "int" };
-  }
-
-  if (isAssignable(thenType, elseType) && !isAssignable(elseType, thenType)) {
-    return elseType;
-  }
-  if (isAssignable(elseType, thenType) && !isAssignable(thenType, elseType)) {
-    return thenType;
-  }
-
-  pushError(
-    context,
-    line,
-    col,
-    `incompatible operand types for ?: '${typeToString(thenType)}' and '${typeToString(elseType)}'`,
-  );
-  return null;
-}
-
-function sameType(left: TypeNode, right: TypeNode): boolean {
-  if (isPrimitiveType(left) || isPrimitiveType(right)) {
-    return isPrimitiveType(left) && isPrimitiveType(right) && left.name === right.name;
-  }
-  if (isArrayType(left) || isArrayType(right)) {
-    return isArrayType(left) && isArrayType(right) && sameType(left.elementType, right.elementType);
-  }
-  if (isVectorType(left) || isVectorType(right)) {
-    return (
-      isVectorType(left) &&
-      isVectorType(right) &&
-      sameType(vectorElementType(left), vectorElementType(right))
-    );
-  }
-  if (isMapType(left) || isMapType(right)) {
-    return (
-      isMapType(left) &&
-      isMapType(right) &&
-      sameType(mapKeyType(left), mapKeyType(right)) &&
-      sameType(mapValueType(left), mapValueType(right))
-    );
-  }
-  if (isPairType(left) || isPairType(right)) {
-    return (
-      isPairType(left) &&
-      isPairType(right) &&
-      sameType(pairFirstType(left), pairFirstType(right)) &&
-      sameType(pairSecondType(left), pairSecondType(right))
-    );
-  }
-  if (isTupleType(left) || isTupleType(right)) {
-    const leftElements = isTupleType(left) ? tupleElementTypes(left) : [];
-    const rightElements = isTupleType(right) ? tupleElementTypes(right) : [];
-    return (
-      isTupleType(left) &&
-      isTupleType(right) &&
-      leftElements.length === rightElements.length &&
-      leftElements.every((elementType, index) => {
-        const rightElementType = rightElements[index];
-        return rightElementType !== undefined && sameType(elementType, rightElementType);
-      })
-    );
-  }
-  if (isPointerType(left) || isPointerType(right)) {
-    return isPointerType(left) && isPointerType(right) && sameType(left.pointeeType, right.pointeeType);
-  }
-  if (isReferenceType(left) || isReferenceType(right)) {
-    return (
-      isReferenceType(left) &&
-      isReferenceType(right) &&
-      sameType(left.referredType, right.referredType)
-    );
-  }
-  return false;
-}
-
-function isAssignable(source: TypeNode, target: TypeNode): boolean {
-  if (sameType(source, target)) {
-    return true;
-  }
-  if (isPairType(source) && isPairType(target)) {
-    return (
-      isAssignable(pairFirstType(source), pairFirstType(target)) &&
-      isAssignable(pairSecondType(source), pairSecondType(target))
-    );
-  }
-  if (isMapType(source) && isMapType(target)) {
-    return (
-      isAssignable(mapKeyType(source), mapKeyType(target)) &&
-      isAssignable(mapValueType(source), mapValueType(target))
-    );
-  }
-  if (isTupleType(source) && isTupleType(target)) {
-    const sourceElements = tupleElementTypes(source);
-    const targetElements = tupleElementTypes(target);
-    return (
-      sourceElements.length === targetElements.length &&
-      sourceElements.every((elementType, index) => {
-        const targetElementType = targetElements[index];
-        return targetElementType !== undefined && isAssignable(elementType, targetElementType);
-      })
-    );
-  }
-  return (
-    isPrimitiveType(source) &&
-    isPrimitiveType(target) &&
-    ((source.name === "char" && target.name === "string") ||
-      (source.name === "string" && target.name === "char") ||
-      ((source.name === "int" || source.name === "long long" || source.name === "char") &&
-        (target.name === "int" || target.name === "long long" || target.name === "char")) ||
-      ((source.name === "int" || source.name === "long long" || source.name === "char") &&
-        target.name === "double") ||
-      (source.name === "double" &&
-        (target.name === "int" || target.name === "long long" || target.name === "char")))
-  );
-}
-
-function isAssignableExpr(expr: ExprNode): boolean {
-  return (
-    expr.kind === "Identifier" ||
-    expr.kind === "IndexExpr" ||
-    expr.kind === "DerefExpr" ||
-    isTupleGetTemplateCall(expr)
-  );
-}
-
-function isIntType(type: TypeNode): boolean {
-  return (
-    isPrimitiveType(type) &&
-    (type.name === "int" || type.name === "long long" || type.name === "char")
-  );
-}
-
-function isDoubleType(type: TypeNode): boolean {
-  return isPrimitiveType(type) && type.name === "double";
-}
-
-function isNumericType(type: TypeNode): boolean {
-  return isIntType(type) || isDoubleType(type);
-}
-
-function isBoolType(type: TypeNode): boolean {
-  return isPrimitiveType(type) && type.name === "bool";
-}
-
-function isStringType(type: TypeNode): boolean {
-  return isPrimitiveType(type) && type.name === "string";
-}
-
-function isNullPointerConstantExpr(expr: ExprNode): boolean {
-  return expr.kind === "Literal" && expr.valueType === "int" && expr.value === 0n;
-}
-
-function isNullPointerType(type: TypeNode): boolean {
-  return isPrimitiveType(type) && type.name === "int";
-}
-
-function isInputTargetType(type: TypeNode): boolean {
-  return isPrimitiveType(type) && type.name !== "void";
-}
-
-function containsVoid(type: TypeNode): boolean {
-  if (isPrimitiveType(type)) {
-    return type.name === "void";
-  }
-  if (isPointerType(type)) {
-    return containsVoid(type.pointeeType);
-  }
-  if (isReferenceType(type)) {
-    return containsVoid(type.referredType);
-  }
-  if (isPairType(type)) {
-    return containsVoid(pairFirstType(type)) || containsVoid(pairSecondType(type));
-  }
-  if (isMapType(type)) {
-    return containsVoid(mapKeyType(type)) || containsVoid(mapValueType(type));
-  }
-  if (isTupleType(type)) {
-    return tupleElementTypes(type).some((elementType) => containsVoid(elementType));
-  }
-  if (isArrayType(type) || isVectorType(type)) {
-    return containsVoid(isArrayType(type) ? type.elementType : vectorElementType(type));
-  }
-  return false;
-}
-
-function baseElementType(type: TypeNode): TypeNode {
-  if (isArrayType(type)) {
-    return baseElementType(type.elementType);
-  }
-  return type;
-}
-
-function unwrapReference(type: TypeNode | null): TypeNode | null {
-  if (type === null) {
-    return null;
-  }
-  return isReferenceType(type) ? type.referredType : type;
-}
-
-function containsReferenceBelowTopLevel(type: TypeNode): boolean {
-  if (isReferenceType(type)) {
-    return false;
-  }
-  return containsReferenceNested(type);
-}
-
-function containsReferenceNested(type: TypeNode): boolean {
-  if (isReferenceType(type)) {
-    return true;
-  }
-  if (isPointerType(type)) {
-    return containsReferenceNested(type.pointeeType);
-  }
-  if (isPairType(type)) {
-    return (
-      containsReferenceNested(pairFirstType(type)) ||
-      containsReferenceNested(pairSecondType(type))
-    );
-  }
-  if (isMapType(type)) {
-    return (
-      containsReferenceNested(mapKeyType(type)) ||
-      containsReferenceNested(mapValueType(type))
-    );
-  }
-  if (isTupleType(type)) {
-    return tupleElementTypes(type).some((elementType) => containsReferenceNested(elementType));
-  }
-  if (isArrayType(type) || isVectorType(type)) {
-    return containsReferenceNested(isArrayType(type) ? type.elementType : vectorElementType(type));
-  }
-  return false;
 }
 
 function inferLValueType(expr: ExprNode, context: ValidationContext): TypeNode | null {
@@ -1469,9 +627,7 @@ function validateReferenceBinding(
   }
   if (actual !== null && !isAssignable(actual, expected)) {
     pushError(
-      context,
-      expr.line,
-      expr.col,
+      context, expr.line, expr.col,
       `cannot convert '${typeToString(actual)}' to '${typeToString(expected)}'`,
     );
   }
@@ -1487,20 +643,10 @@ function validateArgumentAgainstParam(
     return;
   }
   if (isReferenceType(paramType)) {
-    validateReferenceBinding(
-      arg,
-      paramType.referredType,
-      context,
-      "reference argument must be an lvalue",
-    );
+    validateReferenceBinding(arg, paramType.referredType, context, "reference argument must be an lvalue");
     return;
   }
-  if (
-    isPointerType(paramType) &&
-    arg.kind === "Literal" &&
-    arg.valueType === "int" &&
-    arg.value === 0n
-  ) {
+  if (isPointerType(paramType) && arg.kind === "Literal" && arg.valueType === "int" && arg.value === 0n) {
     return;
   }
   validateExpr(arg, context, paramType);
@@ -1523,10 +669,6 @@ function getIterableElementType(
   }
   pushError(context, line, col, "range-based for requires array, vector, map, or string");
   return null;
-}
-
-function sameReceiver(left: ExprNode, right: ExprNode): boolean {
-  return left.kind === "Identifier" && right.kind === "Identifier" && left.name === right.name;
 }
 
 function pushError(context: ValidationContext, line: number, col: number, message: string): void {

@@ -7,7 +7,6 @@ import type {
   DerefExprNode,
   ExprNode,
   TemplateArgNode,
-  TemplateCallExprNode,
   TemplateIdExprNode,
   UnaryExprNode,
 } from "@/types";
