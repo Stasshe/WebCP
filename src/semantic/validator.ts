@@ -13,6 +13,7 @@ import type {
   ProgramNode,
   RangeForStmtNode,
   StatementNode,
+  TemplateFunctionDeclNode,
   TypeNode,
 } from "@/types";
 import {
@@ -55,17 +56,25 @@ import {
   isStringType,
   unwrapReference,
 } from "./type-utils";
+import {
+  type TypeArgMap,
+  inferTypeArgs,
+  instantiateFunction,
+  instantiationKey,
+} from "./template-instantiator";
 
 export type { ValidationContext };
 
 export function validateProgram(program: ProgramNode): CompileError[] {
-  const { functions, errors } = collectFunctions(program);
+  const { functions, templateFunctions, errors } = collectFunctions(program);
   const context: ValidationContext = {
     errors,
     functions,
+    templateFunctions,
     scopes: [new Map()],
     loopDepth: 0,
     currentReturnType: null,
+    instantiatingTemplates: new Set(),
   };
 
   validateMainSignature(functions, context);
@@ -75,7 +84,9 @@ export function validateProgram(program: ProgramNode): CompileError[] {
   }
 
   for (const fn of program.functions) {
-    validateFunction(fn, context);
+    if (fn.kind === "FunctionDecl") {
+      validateFunction(fn, context);
+    }
   }
 
   return context.errors;
@@ -83,20 +94,26 @@ export function validateProgram(program: ProgramNode): CompileError[] {
 
 function collectFunctions(program: ProgramNode): {
   functions: Map<string, FunctionDeclNode>;
+  templateFunctions: Map<string, TemplateFunctionDeclNode>;
   errors: CompileError[];
 } {
   const functions = new Map<string, FunctionDeclNode>();
+  const templateFunctions = new Map<string, TemplateFunctionDeclNode>();
   const errors: CompileError[] = [];
 
   for (const fn of program.functions) {
-    if (functions.has(fn.name)) {
+    if (functions.has(fn.name) || templateFunctions.has(fn.name)) {
       errors.push({ line: fn.line, col: fn.col, message: `redefinition of function '${fn.name}'` });
       continue;
     }
-    functions.set(fn.name, fn);
+    if (fn.kind === "TemplateFunctionDecl") {
+      templateFunctions.set(fn.name, fn);
+    } else {
+      functions.set(fn.name, fn);
+    }
   }
 
-  return { functions, errors };
+  return { functions, templateFunctions, errors };
 }
 
 function validateMainSignature(
@@ -585,6 +602,11 @@ function validateCall(
     return fn.returnType;
   }
 
+  const templateFn = context.templateFunctions.get(callee);
+  if (templateFn !== undefined) {
+    return validateTemplateCall_fn(templateFn, args, line, col, context);
+  }
+
   const builtin = validateBuiltinCall(
     callee,
     args,
@@ -732,6 +754,53 @@ function getIterableElementType(
   }
   pushError(context, line, col, "range-based for requires array, vector, map, or string");
   return null;
+}
+
+function validateTemplateCall_fn(
+  templateFn: TemplateFunctionDeclNode,
+  args: ExprNode[],
+  line: number,
+  col: number,
+  context: ValidationContext,
+): TypeNode | null {
+  if (args.length !== templateFn.params.length) {
+    pushError(
+      context,
+      line,
+      col,
+      `'${templateFn.name}' requires ${templateFn.params.length.toString()} argument${templateFn.params.length === 1 ? "" : "s"}`,
+    );
+    for (const arg of args) validateExpr(arg, context);
+    return null;
+  }
+
+  const argTypes = args.map((arg) => inferExprType(arg, context));
+
+  const map = inferTypeArgs(templateFn.typeParams, templateFn.params, argTypes);
+  if (map === null) {
+    pushError(context, line, col, `cannot deduce template arguments for '${templateFn.name}'`);
+    for (const arg of args) validateExpr(arg, context);
+    return null;
+  }
+
+  const key = instantiationKey(templateFn.name, map, templateFn.typeParams);
+  if (context.instantiatingTemplates.has(key)) {
+    return null;
+  }
+
+  context.instantiatingTemplates.add(key);
+  const instantiated = instantiateFunction(templateFn, map);
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    const param = instantiated.params[i];
+    if (arg !== undefined && param !== undefined) {
+      validateArgumentAgainstParam(arg, param.type, context);
+    }
+  }
+  validateFunction(instantiated, context);
+  context.instantiatingTemplates.delete(key);
+
+  return instantiated.returnType;
 }
 
 function pushError(context: ValidationContext, line: number, col: number, message: string): void {

@@ -39,9 +39,11 @@ import { isIntType, isNumericType } from "./type-utils";
 export type ValidationContext = {
   errors: CompileError[];
   functions: Map<string, import("@/types").FunctionDeclNode>;
+  templateFunctions: Map<string, import("@/types").TemplateFunctionDeclNode>;
   scopes: Map<string, TypeNode>[];
   loopDepth: number;
   currentReturnType: TypeNode | null;
+  instantiatingTemplates: Set<string>;
 };
 
 export type ValidateExprFn = (

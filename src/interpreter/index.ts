@@ -12,6 +12,7 @@ import type {
   RunResult,
   RuntimeErrorInfo,
   StatementNode,
+  TemplateFunctionDeclNode,
 } from "@/types";
 import { isVectorType, pairType } from "@/types";
 import type { RuntimeArgument } from "./evaluator";
@@ -35,10 +36,14 @@ class Interpreter extends InterpreterEvaluator {
   run(): RunResult {
     try {
       for (const fn of this.program.functions) {
-        if (this.functions.has(fn.name)) {
+        if (this.functions.has(fn.name) || this.templateFunctions.has(fn.name)) {
           this.fail(`redefinition of function '${fn.name}'`, fn.line);
         }
-        this.functions.set(fn.name, fn);
+        if (fn.kind === "TemplateFunctionDecl") {
+          this.templateFunctions.set(fn.name, fn);
+        } else {
+          this.functions.set(fn.name, fn);
+        }
       }
 
       for (const decl of this.program.globals) {

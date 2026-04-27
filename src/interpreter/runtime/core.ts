@@ -11,6 +11,7 @@ import type {
   FunctionDeclNode,
   ProgramNode,
   SourceRange,
+  TemplateFunctionDeclNode,
   TypeNode,
   VectorDeclNode,
 } from "@/types";
@@ -61,6 +62,8 @@ export abstract class InterpreterRuntimeCore {
   protected readonly globals: Scope = new Map();
 
   protected readonly functions = new Map<string, FunctionDeclNode>();
+
+  protected readonly templateFunctions = new Map<string, TemplateFunctionDeclNode>();
 
   protected readonly output = { stdout: "", stderr: "" };
 

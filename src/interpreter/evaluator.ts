@@ -12,6 +12,7 @@ import type {
   BinaryExprNode,
   ExprNode,
   FunctionDeclNode,
+  TemplateFunctionDeclNode,
   TypeNode,
 } from "@/types";
 import { isVectorType } from "@/types";
@@ -21,6 +22,7 @@ import {
   evaluateTemplateCall,
   tryEvaluateBuiltinCall,
 } from "./builtin-eval";
+import { inferTypeArgs, instantiateFunction } from "@/semantic/template-instantiator";
 import { InterpreterRuntime } from "./runtime";
 
 export type RuntimeArgument =
@@ -100,6 +102,10 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
             return { kind: "value", value: this.evaluateExpr(arg) };
           });
           return this.invokeFunction(fn, argValues);
+        }
+        const templateFn = this.templateFunctions.get(expr.callee);
+        if (templateFn !== undefined) {
+          return this.invokeTemplateFunction(templateFn, expr.args, expr.line);
         }
         const builtinResult = tryEvaluateBuiltinCall(
           expr.callee,
@@ -202,6 +208,44 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
   }
 
   protected abstract invokeFunction(fn: FunctionDeclNode, args: RuntimeArgument[]): RuntimeValue;
+
+  protected invokeTemplateFunction(
+    templateFn: TemplateFunctionDeclNode,
+    argExprs: import("@/types").ExprNode[],
+    line: number,
+  ): RuntimeValue {
+    if (argExprs.length !== templateFn.params.length) {
+      this.fail(`'${templateFn.name}' requires ${templateFn.params.length.toString()} arguments`, line);
+    }
+    const argValues: RuntimeArgument[] = argExprs.map((argExpr, index) => {
+      const param = templateFn.params[index];
+      if (param !== undefined && param.type.kind === "ReferenceType") {
+        if (!this.isAssignableTarget(argExpr)) {
+          this.fail("reference argument must be an lvalue", argExpr.line);
+        }
+        return {
+          kind: "reference",
+          target: this.resolveAssignTargetLocation(argExpr, argExpr.line),
+          type: param.type.referredType,
+        };
+      }
+      return { kind: "value", value: this.evaluateExpr(argExpr) };
+    });
+
+    const argTypes = argValues.map((a) =>
+      a.kind === "value"
+        ? this.runtimeValueToType(a.value, line)
+        : a.type,
+    );
+
+    const map = inferTypeArgs(templateFn.typeParams, templateFn.params, argTypes);
+    if (map === null) {
+      this.fail(`cannot deduce template arguments for '${templateFn.name}'`, line);
+    }
+
+    const instantiated = instantiateFunction(templateFn, map);
+    return this.invokeFunction(instantiated, argValues);
+  }
 
   protected resolveAssignTargetLocation(target: AssignTargetNode, line: number): RuntimeLocation {
     switch (target.kind) {

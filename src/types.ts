@@ -82,10 +82,19 @@ export type SourceRange = SourceLocation & {
 
 export type NodeBase = SourceRange;
 
+export type TemplateFunctionDeclNode = NodeBase & {
+  kind: "TemplateFunctionDecl";
+  typeParams: string[];
+  returnType: TypeNode;
+  name: string;
+  params: ParamNode[];
+  body: BlockStmtNode;
+};
+
 export type ProgramNode = NodeBase & {
   kind: "Program";
   globals: GlobalDeclNode[];
-  functions: FunctionDeclNode[];
+  functions: (FunctionDeclNode | TemplateFunctionDeclNode)[];
 };
 
 export type GlobalDeclNode = VarDeclNode | ArrayDeclNode | VectorDeclNode;
