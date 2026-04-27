@@ -1,4 +1,5 @@
 import type { CheckCtx } from "@/stdlib/check-context";
+import { registerTemplateCall } from "@/stdlib/check-registry";
 import { getSingleIntTemplateArg } from "@/stdlib/template-exprs";
 import { tupleElementTypes } from "@/stdlib/template-types";
 import type { TemplateCallExprNode, TypeNode } from "@/types";

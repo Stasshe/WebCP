@@ -1,5 +1,6 @@
 import type { RuntimeValue } from "@/runtime/value";
 import type { EvalCtx } from "@/stdlib/eval-context";
+import { registerTemplateCall } from "@/stdlib/eval-registry";
 import { getSingleIntTemplateArg, isTemplateNamed } from "@/stdlib/template-exprs";
 import { tupleElementTypes } from "@/stdlib/template-types";
 import type { ExprNode, TemplateCallExprNode } from "@/types";
@@ -18,6 +19,8 @@ export function evalTupleGet(expr: TemplateCallExprNode, ctx: EvalCtx): RuntimeV
 export function isTupleGetCall(expr: ExprNode): expr is TemplateCallExprNode {
   return expr.kind === "TemplateCallExpr" && isTemplateNamed(expr.callee, "get");
 }
+
+registerTemplateCall("get", evalTupleGet);
 
 function getTupleElementValue(
   tupleExpr: ExprNode,

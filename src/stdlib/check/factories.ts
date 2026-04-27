@@ -1,4 +1,5 @@
 import type { CheckCtx } from "@/stdlib/check-context";
+import { registerFreeCall } from "@/stdlib/check-registry";
 import { describeBuiltinArity, getBuiltinTemplateFactorySpec } from "@/stdlib/registry";
 import type { ExprNode, TypeNode } from "@/types";
 import { pairType, tupleType } from "@/types";
@@ -46,3 +47,6 @@ export function checkMakeTuple(
   }
   return tupleType(elementTypes);
 }
+
+registerFreeCall("make_pair", checkMakePair);
+registerFreeCall("make_tuple", checkMakeTuple);

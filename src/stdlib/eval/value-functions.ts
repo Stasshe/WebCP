@@ -1,5 +1,6 @@
 import type { RuntimeValue } from "@/runtime/value";
 import type { EvalCtx } from "@/stdlib/eval-context";
+import { registerFreeCall } from "@/stdlib/eval-registry";
 import { describeBuiltinArity, getBuiltinValueFunctionSpec } from "@/stdlib/registry";
 import type { ExprNode } from "@/types";
 
@@ -57,3 +58,8 @@ export function evalSwap(args: ExprNode[], line: number, ctx: EvalCtx): RuntimeV
   ctx.writeAssignTarget(right, leftValue, line);
   return { kind: "void" };
 }
+
+registerFreeCall("abs", evalAbs);
+registerFreeCall("max", evalMax);
+registerFreeCall("min", evalMin);
+registerFreeCall("swap", evalSwap);

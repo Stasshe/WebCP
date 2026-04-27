@@ -1,4 +1,5 @@
 import type { CheckCtx } from "@/stdlib/check-context";
+import { registerFreeCall } from "@/stdlib/check-registry";
 import { describeBuiltinArity, getBuiltinValueFunctionSpec } from "@/stdlib/registry";
 import type { ExprNode, TypeNode } from "@/types";
 import { typeToString } from "@/types";
@@ -78,3 +79,8 @@ export function checkSwap(args: ExprNode[], line: number, col: number, ctx: Chec
   }
   return { kind: "PrimitiveType", name: "void" };
 }
+
+registerFreeCall("abs", checkAbs);
+registerFreeCall("max", checkMax);
+registerFreeCall("min", checkMin);
+registerFreeCall("swap", checkSwap);

@@ -1,5 +1,7 @@
 import type { RuntimeValue } from "@/runtime/value";
 import type { EvalCtx } from "@/stdlib/eval-context";
+import { registerMethodHandler, registerTemplateCall } from "@/stdlib/eval-registry";
+import { getSingleTypeTemplateArg } from "@/stdlib/template-exprs";
 import { vectorElementType } from "@/stdlib/template-types";
 import {
   describeVectorMethodArgs,
@@ -7,6 +9,7 @@ import {
   type VectorMethodName,
 } from "@/stdlib/vector-methods";
 import type { ExprNode, VectorTypeNode } from "@/types";
+import { isVectorType, vectorType } from "@/types";
 
 export function evalVectorConstructor(
   type: VectorTypeNode,
@@ -46,6 +49,30 @@ export function evalVectorMethod(
   }
   return applyMethod(vecSpec.name, args, vStore, line, ctx);
 }
+
+registerTemplateCall("vector", (expr, ctx) => {
+  const elementType = getSingleTypeTemplateArg(expr.callee);
+  if (elementType === null) ctx.fail("vector constructor requires exactly 1 type argument", expr.line);
+  const args = expr.args.map((arg) => ctx.evaluateExpr(arg));
+  return evalVectorConstructor(vectorType(elementType), args, expr.line, ctx);
+});
+
+registerMethodHandler({
+  matches: (v) => v.kind === "array",
+  handle: (receiver, method, args, line, ctx) => {
+    const arrayValue = ctx.expectArray(receiver, line);
+    const store = ctx.arrays.get(arrayValue.ref);
+    if (store === undefined) ctx.fail("invalid array reference", line);
+    if (!isVectorType(store.type)) ctx.fail(`method '${method}' is not supported for fixed array`, line);
+    return evalVectorMethod(
+      method,
+      args,
+      store as { type: VectorTypeNode; values: RuntimeValue[] },
+      line,
+      ctx,
+    );
+  },
+});
 
 function applyMethod(
   method: VectorMethodName,

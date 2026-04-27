@@ -1,6 +1,7 @@
 import type { RuntimeValue } from "@/runtime/value";
 import { compareSortableValues } from "@/stdlib/builtins/compare";
 import type { EvalCtx } from "@/stdlib/eval-context";
+import { registerFreeCall } from "@/stdlib/eval-registry";
 import { getBuiltinTemplateComparatorSpec } from "@/stdlib/registry";
 import { vectorElementType } from "@/stdlib/template-types";
 import type { ExprNode, VectorTypeNode } from "@/types";
@@ -86,3 +87,16 @@ function isDescendingSortComparator(
 function sameReceiver(left: ExprNode, right: ExprNode): boolean {
   return left.kind === "Identifier" && right.kind === "Identifier" && left.name === right.name;
 }
+
+registerFreeCall("sort", (args, line, ctx) => {
+  evalSort(args, line, ctx);
+  return { kind: "void" };
+});
+registerFreeCall("reverse", (args, line, ctx) => {
+  evalReverse(args, line, ctx);
+  return { kind: "void" };
+});
+registerFreeCall("fill", (args, line, ctx) => {
+  evalFill(args, line, ctx);
+  return { kind: "void" };
+});

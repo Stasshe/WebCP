@@ -1,4 +1,5 @@
 import type { CheckCtx } from "@/stdlib/check-context";
+import { registerFreeCall } from "@/stdlib/check-registry";
 import {
   describeBuiltinArity,
   getBuiltinRangeAlgorithmSpec,
@@ -100,3 +101,7 @@ function validateVectorRangeArgs(
 function sameReceiver(left: ExprNode, right: ExprNode): boolean {
   return left.kind === "Identifier" && right.kind === "Identifier" && left.name === right.name;
 }
+
+registerFreeCall("sort", checkSort);
+registerFreeCall("reverse", checkReverse);
+registerFreeCall("fill", checkFill);

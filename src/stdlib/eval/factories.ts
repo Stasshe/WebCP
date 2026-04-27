@@ -1,5 +1,6 @@
 import type { RuntimeValue } from "@/runtime/value";
 import type { EvalCtx } from "@/stdlib/eval-context";
+import { registerFreeCall } from "@/stdlib/eval-registry";
 import { describeBuiltinArity, getBuiltinTemplateFactorySpec } from "@/stdlib/registry";
 import type { ExprNode } from "@/types";
 import { pairType, tupleType } from "@/types";
@@ -48,3 +49,6 @@ export function evalMakeTuple(args: ExprNode[], line: number, ctx: EvalCtx): Run
     values,
   };
 }
+
+registerFreeCall("make_pair", evalMakePair);
+registerFreeCall("make_tuple", evalMakeTuple);
