@@ -15,7 +15,6 @@ import {
   tupleElementTypes,
   vectorElementType,
 } from "@/stdlib/template-types";
-import { inferTypeArgs, instantiateFunction, instantiationKey } from "./template-instantiator";
 import type {
   CompileError,
   ExprNode,
@@ -36,6 +35,7 @@ import {
   typeToString,
   vectorType,
 } from "@/types";
+import { inferTypeArgs, instantiateFunction, instantiationKey } from "./template-instantiator";
 import { isAssignable, isAssignableExpr, sameType } from "./type-compat";
 import { isIntType, isNumericType } from "./type-utils";
 
@@ -451,6 +451,60 @@ function validateVectorRangeArgs(
 
 function sameReceiver(left: ExprNode, right: ExprNode): boolean {
   return left.kind === "Identifier" && right.kind === "Identifier" && left.name === right.name;
+}
+
+export function validateTemplateFunctionCall(
+  templateFn: TemplateFunctionDeclNode,
+  args: ExprNode[],
+  line: number,
+  col: number,
+  context: ValidationContext,
+  validateExpr: ValidateExprFn,
+  inferExprType: InferExprTypeFn,
+  validateArgumentAgainstParam: (
+    arg: ExprNode,
+    paramType: TypeNode | undefined,
+    context: ValidationContext,
+  ) => void,
+  validateInstantiatedFn: (fn: FunctionDeclNode, context: ValidationContext) => void,
+): TypeNode | null {
+  if (args.length !== templateFn.params.length) {
+    pushError(
+      context,
+      line,
+      col,
+      `'${templateFn.name}' requires ${templateFn.params.length.toString()} argument${templateFn.params.length === 1 ? "" : "s"}`,
+    );
+    for (const arg of args) validateExpr(arg, context);
+    return null;
+  }
+
+  const argTypes = args.map((arg) => inferExprType(arg, context));
+  const map = inferTypeArgs(templateFn.typeParams, templateFn.params, argTypes);
+  if (map === null) {
+    pushError(context, line, col, `cannot deduce template arguments for '${templateFn.name}'`);
+    for (const arg of args) validateExpr(arg, context);
+    return null;
+  }
+
+  const key = instantiationKey(templateFn.name, map, templateFn.typeParams);
+  if (context.instantiatingTemplates.has(key)) {
+    return null;
+  }
+
+  context.instantiatingTemplates.add(key);
+  const instantiated = instantiateFunction(templateFn, map);
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    const param = instantiated.params[i];
+    if (arg !== undefined && param !== undefined) {
+      validateArgumentAgainstParam(arg, param.type, context);
+    }
+  }
+  validateInstantiatedFn(instantiated, context);
+  context.instantiatingTemplates.delete(key);
+
+  return instantiated.returnType;
 }
 
 function pushError(context: ValidationContext, line: number, col: number, message: string): void {

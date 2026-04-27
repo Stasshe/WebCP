@@ -90,7 +90,8 @@ export abstract class BaseParserTypeSupport extends BaseParserCore {
   }
 
   protected override checkTypeStart(): boolean {
-    if (this.peekPrimitiveTypeKeyword() || this.peekSupportedTemplateTypeName() !== null) return true;
+    if (this.peekPrimitiveTypeKeyword() || this.peekSupportedTemplateTypeName() !== null)
+      return true;
     if (this.activeTypeParams.length > 0) {
       const token = this.peek();
       return token.kind === "identifier" && this.activeTypeParams.includes(token.text);
