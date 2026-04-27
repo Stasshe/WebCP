@@ -1,64 +1,28 @@
-import type { RuntimeLocation, RuntimeValue } from "@/runtime/value";
+import type { RuntimeValue } from "@/runtime/value";
 import {
   compareSortableValues,
   compareValues,
   sameLocation,
   toNumericOperands,
 } from "@/stdlib/builtins/compare";
-import { getMapMethodSpec } from "@/stdlib/map-methods";
+import { evalMakePair, evalMakeTuple } from "@/stdlib/eval/factories";
+import { evalTupleGet } from "@/stdlib/eval/get";
+import { evalMapMethod, evalPairMember } from "@/stdlib/eval/pair-map";
+import { evalFill, evalReverse, evalSort } from "@/stdlib/eval/range-algorithms";
+import { evalAbs, evalMax, evalMin, evalSwap } from "@/stdlib/eval/value-functions";
+import { evalVectorConstructor, evalVectorMethod } from "@/stdlib/eval/vector";
+import type { EvalCtx } from "@/stdlib/eval-context";
+import { getBuiltinFreeFunctionSpec, getBuiltinTemplateComparatorSpec } from "@/stdlib/registry";
 import {
-  describeBuiltinArity,
-  getBuiltinFreeFunctionSpec,
-  getBuiltinTemplateComparatorSpec,
-} from "@/stdlib/registry";
-import {
-  getSingleIntTemplateArg,
   getSingleTypeTemplateArg,
   isTemplateNamed,
   isTupleGetTemplateCall,
 } from "@/stdlib/template-exprs";
-import { vectorElementType } from "@/stdlib/template-types";
-import { describeVectorMethodArgs, getVectorMethodSpec } from "@/stdlib/vector-methods";
-import type { AssignTargetNode, ExprNode, TemplateCallExprNode, VectorTypeNode } from "@/types";
-import { isVectorType, pairType, tupleType, vectorType } from "@/types";
+import type { ExprNode, TemplateCallExprNode } from "@/types";
+import { isVectorType, vectorType } from "@/types";
 
 export type { FailFn } from "@/stdlib/builtins/compare";
-
-export interface EvalCtx {
-  evaluateExpr(expr: ExprNode): RuntimeValue;
-  fail(message: string, line: number): never;
-  expectInt(value: RuntimeValue, line: number): Extract<RuntimeValue, { kind: "int" }>;
-  expectBool(value: RuntimeValue, line: number): Extract<RuntimeValue, { kind: "bool" }>;
-  expectArray(value: RuntimeValue, line: number): Extract<RuntimeValue, { kind: "array" }>;
-  ensureInitialized(
-    value: RuntimeValue,
-    line: number,
-    what: string,
-  ): Exclude<RuntimeValue, { kind: "uninitialized" }>;
-  ensureNotVoid(
-    value: Exclude<RuntimeValue, { kind: "uninitialized" }>,
-    line: number,
-  ): Exclude<RuntimeValue, { kind: "void" | "uninitialized" }>;
-  castToElementType(
-    value: RuntimeValue,
-    elementType: import("@/types").TypeNode,
-    line: number,
-  ): RuntimeValue;
-  runtimeValueToType(value: RuntimeValue, line: number): import("@/types").TypeNode;
-  defaultValueForType(type: import("@/types").TypeNode, line: number): RuntimeValue;
-  isAssignableTarget(expr: ExprNode): expr is AssignTargetNode;
-  readAssignTarget(target: AssignTargetNode, line: number): RuntimeValue;
-  writeAssignTarget(target: AssignTargetNode, value: RuntimeValue, line: number): void;
-  resolveAssignTargetLocation(target: AssignTargetNode, line: number): RuntimeLocation;
-  readLocation(location: RuntimeLocation, line: number): RuntimeValue;
-  writeLocation(location: RuntimeLocation, value: RuntimeValue, line: number): void;
-  arrays: Map<number, { type: import("@/types").TypeNode; values: RuntimeValue[] }>;
-  findOrInsertMapEntry(
-    mapValue: Extract<RuntimeValue, { kind: "map" }>,
-    key: Exclude<RuntimeValue, { kind: "void" | "uninitialized" }>,
-    line: number,
-  ): number;
-}
+export type { EvalCtx } from "@/stdlib/eval-context";
 
 export function tryEvaluateBuiltinCall(
   callee: string,
@@ -67,133 +31,50 @@ export function tryEvaluateBuiltinCall(
   ctx: EvalCtx,
 ): RuntimeValue | null {
   const builtin = getBuiltinFreeFunctionSpec(callee);
-  if (builtin === null) {
-    return null;
-  }
+  if (builtin === null) return null;
 
-  switch (builtin.kind) {
-    case "value_function":
-      switch (builtin.name) {
-        case "abs": {
-          if (args.length !== builtin.maxArgs) {
-            ctx.fail(`${builtin.name} requires ${describeBuiltinArity(builtin)} argument`, line);
-          }
-          const value: bigint = ctx.expectInt(ctx.evaluateExpr(args[0] as ExprNode), line).value;
-          return { kind: "int", value: value < 0n ? -value : value };
-        }
-        case "max":
-        case "min": {
-          if (args.length !== builtin.maxArgs) {
-            ctx.fail(`${builtin.name} requires ${describeBuiltinArity(builtin)} arguments`, line);
-          }
-          const left: bigint = ctx.expectInt(ctx.evaluateExpr(args[0] as ExprNode), line).value;
-          const right: bigint = ctx.expectInt(ctx.evaluateExpr(args[1] as ExprNode), line).value;
-          return {
-            kind: "int",
-            value:
-              builtin.name === "max" ? (left > right ? left : right) : left < right ? left : right,
-          };
-        }
-        case "swap": {
-          if (args.length !== builtin.maxArgs) {
-            ctx.fail(`${builtin.name} requires ${describeBuiltinArity(builtin)} arguments`, line);
-          }
-          const left = args[0];
-          const right = args[1];
-          if (
-            left === undefined ||
-            right === undefined ||
-            !ctx.isAssignableTarget(left) ||
-            !ctx.isAssignableTarget(right)
-          ) {
-            ctx.fail("swap arguments must be lvalues", line);
-          }
-          const leftValue = ctx.readAssignTarget(left, line);
-          const rightValue = ctx.readAssignTarget(right, line);
-          ctx.writeAssignTarget(left, rightValue, line);
-          ctx.writeAssignTarget(right, leftValue, line);
-          return { kind: "void" };
-        }
-      }
-      break;
-    case "template_factory":
-      switch (builtin.name) {
-        case "make_pair": {
-          if (args.length !== builtin.maxArgs) {
-            ctx.fail(`${builtin.name} requires ${describeBuiltinArity(builtin)} arguments`, line);
-          }
-          const firstExpr = args[0];
-          const secondExpr = args[1];
-          if (firstExpr === undefined || secondExpr === undefined) {
-            ctx.fail(`${builtin.name} requires ${describeBuiltinArity(builtin)} arguments`, line);
-          }
-          const firstValue = ctx.ensureNotVoid(
-            ctx.ensureInitialized(ctx.evaluateExpr(firstExpr), line, "value"),
-            line,
-          );
-          const secondValue = ctx.ensureNotVoid(
-            ctx.ensureInitialized(ctx.evaluateExpr(secondExpr), line, "value"),
-            line,
-          );
-          return {
-            kind: "pair",
-            type: {
-              ...pairType(
-                ctx.runtimeValueToType(firstValue, line),
-                ctx.runtimeValueToType(secondValue, line),
-              ),
-            },
-            first: firstValue,
-            second: secondValue,
-          };
-        }
-        case "make_tuple": {
-          if (args.length < builtin.minArgs) {
-            ctx.fail(`${builtin.name} requires ${describeBuiltinArity(builtin)} arguments`, line);
-          }
-          const values = args.map((arg) =>
-            ctx.ensureNotVoid(ctx.ensureInitialized(ctx.evaluateExpr(arg), line, "value"), line),
-          );
-          return {
-            kind: "tuple",
-            type: {
-              ...tupleType(values.map((v) => ctx.runtimeValueToType(v, line))),
-            },
-            values,
-          };
-        }
-      }
-      break;
-    case "range_algorithm":
-      applyRangeBuiltin(builtin.name, args, line, ctx);
-      return { kind: "void" };
-    case "template_comparator":
-      return null;
+  if (builtin.kind === "value_function") {
+    switch (builtin.name) {
+      case "abs":
+        return evalAbs(args, line, ctx);
+      case "max":
+        return evalMax(args, line, ctx);
+      case "min":
+        return evalMin(args, line, ctx);
+      case "swap":
+        return evalSwap(args, line, ctx);
+    }
   }
-
+  if (builtin.kind === "template_factory") {
+    switch (
+      builtin.name //ここびみょくね？
+    ) {
+      case "make_pair":
+        return evalMakePair(args, line, ctx);
+      case "make_tuple":
+        return evalMakeTuple(args, line, ctx);
+    }
+  }
+  if (builtin.kind === "range_algorithm") {
+    switch (builtin.name) {
+      case "sort":
+        evalSort(args, line, ctx);
+        break;
+      case "reverse":
+        evalReverse(args, line, ctx);
+        break;
+      case "fill":
+        evalFill(args, line, ctx);
+        break;
+    }
+    return { kind: "void" };
+  }
   return null;
 }
 
-export function evaluateTemplateCall(
-  expr: TemplateCallExprNode,
-  ctx: EvalCtx,
-  getTupleElementValue: (tupleExpr: ExprNode, index: number, line: number) => RuntimeValue,
-  constructVectorValue: (
-    type: import("@/types").VectorTypeNode,
-    args: RuntimeValue[],
-    line: number,
-  ) => RuntimeValue,
-): RuntimeValue {
+export function evaluateTemplateCall(expr: TemplateCallExprNode, ctx: EvalCtx): RuntimeValue {
   if (isTemplateNamed(expr.callee, "get")) {
-    const index = getSingleIntTemplateArg(expr.callee);
-    if (index === null) {
-      ctx.fail("get requires a single non-negative integer template argument", expr.line);
-    }
-    const tupleExpr = expr.args[0];
-    if (tupleExpr === undefined || expr.args.length !== 1) {
-      ctx.fail("get requires exactly 1 argument", expr.line);
-    }
-    return getTupleElementValue(tupleExpr, index, expr.line);
+    return evalTupleGet(expr, ctx);
   }
 
   if (getBuiltinTemplateComparatorSpec(expr.callee.template) !== null) {
@@ -206,7 +87,7 @@ export function evaluateTemplateCall(
       ctx.fail("vector constructor requires exactly 1 type argument", expr.line);
     }
     const args = expr.args.map((arg) => ctx.evaluateExpr(arg));
-    return constructVectorValue(vectorType(elementType), args, expr.line);
+    return evalVectorConstructor(vectorType(elementType), args, expr.line, ctx);
   }
 
   return ctx.fail(`unsupported template call '${expr.callee.template}'`, expr.line);
@@ -221,208 +102,23 @@ export function evaluateMethodCall(
 ): RuntimeValue {
   const receiver = ctx.evaluateExpr(receiverExpr);
 
-  if (receiver.kind === "pair") {
-    if (method !== "first" && method !== "second") {
-      ctx.fail(`unknown pair member '${method}'`, line);
-    }
-    if (args.length !== 0) {
-      ctx.fail(`${method} requires no arguments`, line);
-    }
-    return method === "first" ? receiver.first : receiver.second;
-  }
-
-  if (receiver.kind === "map") {
-    const mapSpec = getMapMethodSpec(method);
-    if (mapSpec === null) {
-      ctx.fail(`unknown map method '${method}'`, line);
-    }
-    if (args.length < mapSpec.minArgs || args.length > mapSpec.maxArgs) {
-      ctx.fail(`${method} requires no arguments`, line);
-    }
-    return { kind: "int", value: BigInt(receiver.entries.length) };
-  }
+  if (receiver.kind === "pair") return evalPairMember(receiver, method, args, line, ctx);
+  if (receiver.kind === "map") return evalMapMethod(receiver, method, args, line, ctx);
 
   const arrayValue = ctx.expectArray(receiver, line);
   const store = ctx.arrays.get(arrayValue.ref);
-  if (store === undefined) {
-    ctx.fail("invalid array reference", line);
-  }
+  if (store === undefined) ctx.fail("invalid array reference", line);
   if (!isVectorType(store.type)) {
     ctx.fail(`method '${method}' is not supported for fixed array`, line);
   }
-  const vStore = store as { type: import("@/types").VectorTypeNode; values: RuntimeValue[] };
 
-  const vecSpec = getVectorMethodSpec(method);
-  if (vecSpec === null) {
-    ctx.fail(`unknown vector method '${method}'`, line);
-  }
-  if (args.length < vecSpec.minArgs || args.length > vecSpec.maxArgs) {
-    ctx.fail(`${method} requires ${describeVectorMethodArgs(vecSpec)}`, line);
-  }
-
-  return applyVectorMethod(vecSpec.name, args, vStore, line, ctx);
-}
-
-function applyVectorMethod(
-  method: import("@/stdlib/vector-methods").VectorMethodName,
-  args: ExprNode[],
-  vStore: { type: import("@/types").VectorTypeNode; values: RuntimeValue[] },
-  line: number,
-  ctx: EvalCtx,
-): RuntimeValue {
-  switch (method) {
-    case "push_back": {
-      const value = ctx.castToElementType(
-        ctx.evaluateExpr(args[0] as ExprNode),
-        vectorElementType(vStore.type),
-        line,
-      );
-      vStore.values.push(value);
-      return { kind: "void" };
-    }
-    case "pop_back": {
-      if (vStore.values.length === 0) {
-        ctx.fail("pop_back on empty vector", line);
-      }
-      vStore.values.pop();
-      return { kind: "void" };
-    }
-    case "size":
-      return { kind: "int", value: BigInt(vStore.values.length) };
-    case "back": {
-      const last = vStore.values[vStore.values.length - 1];
-      if (last === undefined) {
-        ctx.fail("back on empty vector", line);
-      }
-      return last;
-    }
-    case "empty":
-      return { kind: "bool", value: vStore.values.length === 0 };
-    case "clear":
-      vStore.values = [];
-      return { kind: "void" };
-    case "resize": {
-      const newSize: bigint = ctx.expectInt(ctx.evaluateExpr(args[0] as ExprNode), line).value;
-      if (newSize < 0n) {
-        ctx.fail("resize size must be non-negative", line);
-      }
-      const targetSize = Number(newSize);
-      if (targetSize < vStore.values.length) {
-        vStore.values = vStore.values.slice(0, targetSize);
-      } else {
-        while (vStore.values.length < targetSize) {
-          vStore.values.push(ctx.defaultValueForType(vectorElementType(vStore.type), line));
-        }
-      }
-      return { kind: "void" };
-    }
-  }
-}
-
-function applyRangeBuiltin(
-  callee: "sort" | "reverse" | "fill",
-  args: ExprNode[],
-  line: number,
-  ctx: EvalCtx,
-): void {
-  const range = expectVectorRange(args, callee, line, ctx);
-  const store = range.store;
-
-  if (callee === "reverse") {
-    store.values.reverse();
-    return;
-  }
-
-  if (callee === "fill") {
-    const fillArg = args[2];
-    if (fillArg === undefined) {
-      ctx.fail("fill requires exactly 3 arguments", line);
-    }
-    const fillValue = ctx.castToElementType(
-      ctx.evaluateExpr(fillArg),
-      vectorElementType(store.type),
-      line,
-    );
-    store.values = store.values.map(() => fillValue);
-    return;
-  }
-
-  const descending = isDescendingSortComparator(args[2], line, ctx);
-  store.values.sort((left, right) =>
-    compareSortableValues(left, right, descending, line, ctx.fail.bind(ctx)),
+  return evalVectorMethod(
+    method,
+    args,
+    store as { type: import("@/types").VectorTypeNode; values: RuntimeValue[] },
+    line,
+    ctx,
   );
-}
-
-function expectVectorRange(
-  args: ExprNode[],
-  callee: "sort" | "reverse" | "fill",
-  line: number,
-  ctx: EvalCtx,
-): { store: { values: RuntimeValue[]; type: VectorTypeNode } } {
-  const minArgs = callee === "fill" ? 3 : 2;
-  const maxArgs = callee === "sort" ? 3 : callee === "fill" ? 3 : 2;
-  if (args.length < minArgs || args.length > maxArgs) {
-    ctx.fail(
-      `${callee} requires ${callee === "sort" ? "2 or 3" : callee === "fill" ? "exactly 3" : "exactly 2"} arguments`,
-      line,
-    );
-  }
-
-  const beginExpr = args[0];
-  const endExpr = args[1];
-  if (
-    beginExpr === undefined ||
-    endExpr === undefined ||
-    beginExpr.kind !== "MethodCallExpr" ||
-    endExpr.kind !== "MethodCallExpr"
-  ) {
-    ctx.fail(`${callee} requires vector begin/end iterators`, line);
-  }
-  if (
-    beginExpr.method !== "begin" ||
-    endExpr.method !== "end" ||
-    beginExpr.args.length !== 0 ||
-    endExpr.args.length !== 0
-  ) {
-    ctx.fail(`${callee} requires vector begin/end iterators`, line);
-  }
-  if (!sameReceiver(beginExpr.receiver, endExpr.receiver)) {
-    ctx.fail(`${callee} requires iterators from the same vector`, line);
-  }
-
-  const receiver = ctx.evaluateExpr(beginExpr.receiver);
-  const arrayValue = ctx.expectArray(receiver, line);
-  const store = ctx.arrays.get(arrayValue.ref);
-  if (store === undefined) {
-    ctx.fail("invalid array reference", line);
-  }
-  if (!isVectorType(store.type)) {
-    ctx.fail(`${callee} requires a vector range`, line);
-  }
-
-  return { store: store as { values: RuntimeValue[]; type: VectorTypeNode } };
-}
-
-function isDescendingSortComparator(
-  expr: ExprNode | undefined,
-  line: number,
-  ctx: EvalCtx,
-): boolean {
-  if (expr === undefined) {
-    return false;
-  }
-  if (
-    expr.kind === "TemplateCallExpr" &&
-    expr.args.length === 0 &&
-    getBuiltinTemplateComparatorSpec(expr.callee.template) !== null
-  ) {
-    return true;
-  }
-  ctx.fail("unsupported sort comparator", line);
-}
-
-function sameReceiver(left: ExprNode, right: ExprNode): boolean {
-  return left.kind === "Identifier" && right.kind === "Identifier" && left.name === right.name;
 }
 
 export {

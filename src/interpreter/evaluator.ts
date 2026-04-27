@@ -6,6 +6,7 @@ import {
   sameLocation,
   toNumericOperands,
 } from "@/stdlib/builtins/compare";
+import type { EvalCtx } from "@/stdlib/eval-context";
 import { isTupleGetTemplateCall } from "@/stdlib/template-exprs";
 import { mapValueType, tupleElementTypes, vectorElementType } from "@/stdlib/template-types";
 import type {
@@ -17,12 +18,7 @@ import type {
   TypeNode,
 } from "@/types";
 import { isVectorType } from "@/types";
-import {
-  type EvalCtx,
-  evaluateMethodCall,
-  evaluateTemplateCall,
-  tryEvaluateBuiltinCall,
-} from "./builtin-eval";
+import { evaluateMethodCall, evaluateTemplateCall, tryEvaluateBuiltinCall } from "./builtin-eval";
 import { InterpreterRuntime } from "./runtime";
 
 export type RuntimeArgument =
@@ -51,6 +47,7 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
       resolveAssignTargetLocation: (target, line) => this.resolveAssignTargetLocation(target, line),
       readLocation: (loc, line) => this.readLocation(loc, line),
       writeLocation: (loc, value, line) => this.writeLocation(loc, value, line),
+      allocVector: (type, values) => this.allocateArray(type, values),
       arrays: this.arrays,
       findOrInsertMapEntry: (mapValue, key, line) => this.findOrInsertMapEntry(mapValue, key, line),
     };
@@ -119,12 +116,7 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
         return this.fail(`'${expr.callee}' was not declared in this scope`, expr.line);
       }
       case "TemplateCallExpr":
-        return evaluateTemplateCall(
-          expr,
-          this.evalCtx,
-          (tupleExpr, index, line) => this.getTupleElementValue(tupleExpr, index, line),
-          (type, args, line) => this.constructVectorValue(type, args, line),
-        );
+        return evaluateTemplateCall(expr, this.evalCtx);
       case "MethodCallExpr":
         return evaluateMethodCall(expr.receiver, expr.method, expr.args, expr.line, this.evalCtx);
       case "IndexExpr":
@@ -393,21 +385,6 @@ export abstract class InterpreterEvaluator extends InterpreterRuntime {
       );
     }
     return { kind: "tuple", parent, index, type: elementType };
-  }
-
-  protected getTupleElementValue(tupleExpr: ExprNode, index: number, line: number): RuntimeValue {
-    const tupleValue = this.ensureInitialized(this.evaluateExpr(tupleExpr), line, "tuple");
-    if (tupleValue.kind !== "tuple") {
-      this.fail("type mismatch: expected tuple", line);
-    }
-    const elementValue = tupleValue.values[index];
-    if (elementValue === undefined) {
-      this.fail(
-        `tuple index ${index.toString()} out of range for tuple of size ${tupleValue.values.length}`,
-        line,
-      );
-    }
-    return this.ensureNotVoid(this.ensureInitialized(elementValue, line, "tuple element"), line);
   }
 
   protected getIndexedValue(targetExpr: ExprNode, indexExpr: ExprNode, line: number): RuntimeValue {

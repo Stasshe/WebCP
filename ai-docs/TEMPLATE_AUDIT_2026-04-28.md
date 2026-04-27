@@ -79,9 +79,11 @@
 
 非依存な名前解決エラーでも、未実体化なら通るケースがある。完全な二段階名前探索をやる話になるため、軽修正では済まない。
 
-### 2. Stdlib behavior still lives in semantic/interpreter branches
+### 2. ~~Stdlib behavior still lives in semantic/interpreter branches~~ (解消済み 2026-04-28)
 
-phase 4 の本丸。`src/stdlib/` を「定義の場所」にしたいなら、metadata ではなく declarative/intrinsic binding 層まで引き上げる必要がある。
+`stdlib/eval/` と `stdlib/check/` に vector / sort / get<N> / make_pair 等の振る舞い本体を移動した。
+`semantic/builtin-checker.ts` と `interpreter/builtin-eval.ts` は薄いディスパッチャに変更。
+`EvalCtx` / `CheckCtx` インターフェースで循環依存を回避。
 
 ### 3. Explicit template arguments are still unsupported
 

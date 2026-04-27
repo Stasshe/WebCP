@@ -5,7 +5,7 @@
 ```
 parser → (なし)
 runtime → (なし)
-stdlib → (なし)
+stdlib → runtime, types
 semantic → stdlib, types
 interpreter → stdlib, runtime, parser, types
 debugger → interpreter, runtime
@@ -72,17 +72,40 @@ export interface EvalCtx {
 | `template-types.ts` | テンプレート型アクセサ（`vectorElementType`, `mapKeyType` 等） |
 | `vector-methods.ts` / `map-methods.ts` | コンテナメソッド metadata |
 | `builtins/compare.ts` | 値比較純関数（評価器文脈不要） |
+| `eval-context.ts` | `EvalCtx` インターフェース定義（stdlib eval 関数が受け取る評価器コンテキスト） |
+| `check-context.ts` | `CheckCtx` インターフェース定義（stdlib check 関数が受け取る型検査コンテキスト） |
+| `eval/value-functions.ts` | abs / max / min / swap の評価実装 |
+| `eval/factories.ts` | make_pair / make_tuple の評価実装 |
+| `eval/vector.ts` | vector コンストラクタ・全メソッドの評価実装 |
+| `eval/get.ts` | get<N> の評価実装 |
+| `eval/pair-map.ts` | pair first/second・map.size の評価実装 |
+| `eval/range-algorithms.ts` | sort / reverse / fill の評価実装 |
+| `check/value-functions.ts` | abs / max / min / swap の型検査実装 |
+| `check/factories.ts` | make_pair / make_tuple の型検査実装 |
+| `check/vector.ts` | vector コンストラクタ・全メソッドの型検査実装 |
+| `check/get.ts` | get<N> の型検査実装 |
+| `check/methods.ts` | pair / map メソッドの型検査実装 |
+| `check/range-algorithms.ts` | sort / reverse / fill の型検査実装 |
 
-### 現状の到達点
+### stdlib の位置づけ（Phase 4 完了）
 
-- template AST と関数テンプレート単相化は入っている
-- ただし `stdlib/` はまだ「完全な標準ライブラリ定義」ではなく、metadata と helper の集約層
-- `vector` / `tuple` / `get` / `sort` などの振る舞い本体は、依然として `semantic/` と `interpreter/` の intrinsic 実装が担当している
+- `stdlib/eval/` が vector / sort / get<N> などの **振る舞い本体** を保持する
+- `stdlib/check/` が同機能の **型検査本体** を保持する
+- `semantic/builtin-checker.ts` と `interpreter/builtin-eval.ts` は **薄いディスパッチャ** に徹する
+- コアへの intrinsic 直書きは解消済み
+
+### EvalCtx パターン（stdlib 版）
+
+`stdlib/eval/` の各関数は `EvalCtx` を受け取る。`EvalCtx` は `stdlib/eval-context.ts` で定義され、`evaluator.ts` の `evalCtx` getter がこれを実装して渡す。
+
+同様に `stdlib/check/` の各関数は `CheckCtx`（`stdlib/check-context.ts`）を受け取り、`builtin-checker.ts` の `makeCheckCtx()` が ValidationContext を閉じ込めて渡す。
 
 ## 新規組み込み追加手順
 
 1. `stdlib/registry.ts` にメタデータ登録
-2. `semantic/builtin-checker.ts` に型検査追加
-3. `interpreter/builtin-eval.ts` に評価追加
-4. `tests/` にテスト追加
-5. `SPECIFICATION.md` 更新
+2. `stdlib/check/<category>.ts` に型検査実装追加
+3. `stdlib/eval/<category>.ts` に評価実装追加
+4. `semantic/builtin-checker.ts` のディスパッチに追加
+5. `interpreter/builtin-eval.ts` のディスパッチに追加
+6. `tests/` にテスト追加
+7. `SPECIFICATION.md` 更新

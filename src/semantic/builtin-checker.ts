@@ -1,21 +1,12 @@
-import { getMapMethodSpec } from "@/stdlib/map-methods";
-import {
-  describeBuiltinArity,
-  getBuiltinFreeFunctionSpec,
-  getBuiltinTemplateComparatorSpec,
-} from "@/stdlib/registry";
-import {
-  getSingleIntTemplateArg,
-  getSingleTypeTemplateArg,
-  isTemplateNamed,
-} from "@/stdlib/template-exprs";
-import {
-  pairFirstType,
-  pairSecondType,
-  tupleElementTypes,
-  vectorElementType,
-} from "@/stdlib/template-types";
-import { describeVectorMethodArgs, getVectorMethodSpec } from "@/stdlib/vector-methods";
+import { checkMakePair, checkMakeTuple } from "@/stdlib/check/factories";
+import { checkTupleGet } from "@/stdlib/check/get";
+import { checkMapMethod, checkPairMethod } from "@/stdlib/check/methods";
+import { checkFill, checkReverse, checkSort } from "@/stdlib/check/range-algorithms";
+import { checkAbs, checkMax, checkMin, checkSwap } from "@/stdlib/check/value-functions";
+import { checkVectorConstructor, checkVectorMethod } from "@/stdlib/check/vector";
+import type { CheckCtx } from "@/stdlib/check-context";
+import { getBuiltinFreeFunctionSpec, getBuiltinTemplateComparatorSpec } from "@/stdlib/registry";
+import { isTemplateNamed } from "@/stdlib/template-exprs";
 import type {
   CompileError,
   ExprNode,
@@ -23,18 +14,8 @@ import type {
   TemplateCallExprNode,
   TemplateFunctionDeclNode,
   TypeNode,
-  VectorTypeNode,
 } from "@/types";
-import {
-  isMapType,
-  isPairType,
-  isTupleType,
-  isVectorType,
-  pairType,
-  tupleType,
-  typeToString,
-  vectorType,
-} from "@/types";
+import { isMapType, isPairType, isVectorType } from "@/types";
 import { inferTypeArgs, instantiateFunction, instantiationKey } from "./template-instantiator";
 import { isAssignable, isAssignableExpr } from "./type-compat";
 
@@ -56,6 +37,20 @@ export type ValidateExprFn = (
 
 export type InferExprTypeFn = (expr: ExprNode, context: ValidationContext) => TypeNode | null;
 
+function makeCheckCtx(
+  context: ValidationContext,
+  validateExpr: ValidateExprFn,
+  inferExprType: InferExprTypeFn,
+): CheckCtx {
+  return {
+    pushError: (line, col, message) => context.errors.push({ line, col, message }),
+    validateExpr: (expr, expected) => validateExpr(expr, context, expected),
+    inferExprType: (expr) => inferExprType(expr, context),
+    isAssignableExpr,
+    isAssignable,
+  };
+}
+
 export function validateBuiltinCall(
   callee: string,
   args: ExprNode[],
@@ -66,121 +61,44 @@ export function validateBuiltinCall(
   inferExprType: InferExprTypeFn,
 ): TypeNode | null | undefined {
   const builtin = getBuiltinFreeFunctionSpec(callee);
-  if (builtin === null) {
-    return undefined;
-  }
+  if (builtin === null) return undefined;
 
-  switch (builtin.kind) {
-    case "value_function":
-      switch (builtin.name) {
-        case "abs":
-          if (args.length !== builtin.maxArgs) {
-            pushError(
-              context,
-              line,
-              col,
-              `${builtin.name} requires ${describeBuiltinArity(builtin)} argument`,
-            );
-          }
-          validateExpr(args[0] ?? null, context, "int");
-          return { kind: "PrimitiveType", name: "int" };
-        case "max":
-        case "min":
-          if (args.length !== builtin.maxArgs) {
-            pushError(
-              context,
-              line,
-              col,
-              `${builtin.name} requires ${describeBuiltinArity(builtin)} arguments`,
-            );
-          }
-          validateExpr(args[0] ?? null, context, "int");
-          validateExpr(args[1] ?? null, context, "int");
-          return { kind: "PrimitiveType", name: "int" };
-        case "swap": {
-          if (args.length !== builtin.maxArgs) {
-            pushError(
-              context,
-              line,
-              col,
-              `${builtin.name} requires ${describeBuiltinArity(builtin)} arguments`,
-            );
-          }
-          const left = args[0];
-          const right = args[1];
-          if (left !== undefined) {
-            const leftType = validateExpr(left, context);
-            if (!isAssignableExpr(left)) {
-              pushError(context, left.line, left.col, "swap arguments must be lvalues");
-            }
-            if (right !== undefined) {
-              const rightType = validateExpr(right, context, leftType ?? undefined);
-              if (!isAssignableExpr(right)) {
-                pushError(context, right.line, right.col, "swap arguments must be lvalues");
-              }
-              if (leftType !== null && rightType !== null && !isAssignable(rightType, leftType)) {
-                pushError(
-                  context,
-                  line,
-                  col,
-                  `cannot convert '${typeToString(rightType)}' to '${typeToString(leftType)}'`,
-                );
-              }
-            }
-          } else if (right !== undefined) {
-            validateExpr(right, context);
-          }
-          return { kind: "PrimitiveType", name: "void" };
-        }
-      }
-      break;
-    case "template_factory":
-      switch (builtin.name) {
-        case "make_pair": {
-          if (args.length !== builtin.maxArgs) {
-            pushError(
-              context,
-              line,
-              col,
-              `${builtin.name} requires ${describeBuiltinArity(builtin)} arguments`,
-            );
-          }
-          const firstType = validateExpr(args[0] ?? null, context);
-          const secondType = validateExpr(args[1] ?? null, context);
-          if (firstType === null || secondType === null) {
-            return null;
-          }
-          return pairType(firstType, secondType);
-        }
-        case "make_tuple": {
-          if (args.length < builtin.minArgs) {
-            pushError(
-              context,
-              line,
-              col,
-              `${builtin.name} requires ${describeBuiltinArity(builtin)} arguments`,
-            );
-            return null;
-          }
-          const elementTypes: TypeNode[] = [];
-          for (const arg of args) {
-            const elementType = validateExpr(arg, context);
-            if (elementType === null) {
-              return null;
-            }
-            elementTypes.push(elementType);
-          }
-          return tupleType(elementTypes);
-        }
-      }
-      break;
-    case "range_algorithm":
-      return validateRangeBuiltin(builtin, args, line, col, context, validateExpr, inferExprType);
-    case "template_comparator":
-      pushError(context, line, col, `'${builtin.name}' was not declared in this scope`);
-      return null;
-  }
+  const ctx = makeCheckCtx(context, validateExpr, inferExprType);
 
+  if (builtin.kind === "value_function") {
+    switch (builtin.name) {
+      case "abs":
+        return checkAbs(args, line, col, ctx);
+      case "max":
+        return checkMax(args, line, col, ctx);
+      case "min":
+        return checkMin(args, line, col, ctx);
+      case "swap":
+        return checkSwap(args, line, col, ctx);
+    }
+  }
+  if (builtin.kind === "template_factory") {
+    switch (builtin.name) {
+      case "make_pair":
+        return checkMakePair(args, line, col, ctx);
+      case "make_tuple":
+        return checkMakeTuple(args, line, col, ctx);
+    }
+  }
+  if (builtin.kind === "range_algorithm") {
+    switch (builtin.name) {
+      case "sort":
+        return checkSort(args, line, col, ctx);
+      case "reverse":
+        return checkReverse(args, line, col, ctx);
+      case "fill":
+        return checkFill(args, line, col, ctx);
+    }
+  }
+  if (builtin.kind === "template_comparator") {
+    context.errors.push({ line, col, message: `'${builtin.name}' was not declared in this scope` });
+    return null;
+  }
   return undefined;
 }
 
@@ -190,75 +108,20 @@ export function validateTemplateCall(
   validateExpr: ValidateExprFn,
   inferExprType: InferExprTypeFn,
 ): TypeNode | null {
-  if (isTemplateNamed(expr.callee, "get")) {
-    const index = getSingleIntTemplateArg(expr.callee);
-    if (index === null) {
-      pushError(
-        context,
-        expr.line,
-        expr.col,
-        "get requires a single non-negative integer template argument",
-      );
-      return null;
-    }
-    const tupleExpr = expr.args[0];
-    const tupleTypeNode = tupleExpr === undefined ? null : inferExprType(tupleExpr, context);
-    if (expr.args.length !== 1) {
-      pushError(context, expr.line, expr.col, "get requires exactly 1 argument");
-    }
-    if (tupleTypeNode === null) {
-      return null;
-    }
-    if (!isTupleType(tupleTypeNode)) {
-      pushError(context, expr.line, expr.col, "type mismatch: expected tuple");
-      return null;
-    }
-    const elementTypes = tupleElementTypes(tupleTypeNode);
-    const elementType = elementTypes[index];
-    if (elementType === undefined) {
-      pushError(
-        context,
-        expr.line,
-        expr.col,
-        `tuple index ${index.toString()} out of range for tuple of size ${elementTypes.length}`,
-      );
-      return null;
-    }
-    return elementType;
-  }
+  const ctx = makeCheckCtx(context, validateExpr, inferExprType);
 
-  if (getBuiltinTemplateComparatorSpec(expr.callee.template) !== null) {
-    return null;
-  }
+  if (isTemplateNamed(expr.callee, "get")) return checkTupleGet(expr, ctx);
 
-  if (isTemplateNamed(expr.callee, "vector")) {
-    const elementType = getSingleTypeTemplateArg(expr.callee);
-    if (elementType === null) {
-      pushError(
-        context,
-        expr.line,
-        expr.col,
-        "vector constructor requires exactly 1 type argument",
-      );
-      return null;
-    }
-    const vType = vectorType(elementType);
-    if (expr.args.length >= 1) {
-      validateExpr(expr.args[0] ?? null, context, "int");
-    }
-    if (expr.args.length >= 2) {
-      validateExpr(expr.args[1] ?? null, context, vectorElementType(vType));
-    }
-    if (expr.args.length > 2) {
-      pushError(context, expr.line, expr.col, "too many arguments for vector constructor");
-    }
-    return vType;
-  }
+  if (getBuiltinTemplateComparatorSpec(expr.callee.template) !== null) return null;
 
-  pushError(context, expr.line, expr.col, `unsupported template call '${expr.callee.template}'`);
-  for (const arg of expr.args) {
-    validateExpr(arg, context);
-  }
+  if (isTemplateNamed(expr.callee, "vector")) return checkVectorConstructor(expr, ctx);
+
+  context.errors.push({
+    line: expr.line,
+    col: expr.col,
+    message: `unsupported template call '${expr.callee.template}'`,
+  });
+  for (const arg of expr.args) validateExpr(arg, context);
   return null;
 }
 
@@ -274,185 +137,22 @@ export function validateMethodCall(
 ): TypeNode | null {
   const receiverType = inferExprType(receiver, context);
   if (receiverType === null) {
-    for (const arg of args) {
-      validateExpr(arg, context);
-    }
+    for (const arg of args) validateExpr(arg, context);
     return null;
   }
 
-  if (isPairType(receiverType)) {
-    if (method !== "first" && method !== "second") {
-      pushError(context, line, col, `unknown pair member '${method}'`);
-      for (const arg of args) {
-        validateExpr(arg, context);
-      }
-      return null;
-    }
-    if (args.length !== 0) {
-      pushError(context, line, col, `${method} requires no arguments`);
-    }
-    return method === "first" ? pairFirstType(receiverType) : pairSecondType(receiverType);
-  }
+  const ctx = makeCheckCtx(context, validateExpr, inferExprType);
 
-  if (isMapType(receiverType)) {
-    const mapSpec = getMapMethodSpec(method);
-    if (mapSpec === null) {
-      pushError(context, line, col, `unknown map method '${method}'`);
-      for (const arg of args) {
-        validateExpr(arg, context);
-      }
-      return null;
-    }
-    if (args.length < mapSpec.minArgs || args.length > mapSpec.maxArgs) {
-      pushError(context, line, col, `${method} requires no arguments`);
-    }
-    return { kind: "PrimitiveType", name: "int" };
-  }
+  if (isPairType(receiverType)) return checkPairMethod(receiverType, method, args, line, col, ctx);
+  if (isMapType(receiverType)) return checkMapMethod(receiverType, method, args, line, col, ctx);
 
   if (!isVectorType(receiverType)) {
-    pushError(context, line, col, "type mismatch: expected array/vector/pair/map");
-    for (const arg of args) {
-      validateExpr(arg, context);
-    }
+    context.errors.push({ line, col, message: "type mismatch: expected array/vector/pair/map" });
+    for (const arg of args) validateExpr(arg, context);
     return null;
   }
 
-  if (method === "begin" || method === "end") {
-    if (args.length !== 0) {
-      pushError(context, line, col, `${method} requires no arguments`);
-    }
-    return receiverType;
-  }
-
-  const vecSpec = getVectorMethodSpec(method);
-  if (vecSpec === null) {
-    pushError(context, line, col, `unknown vector method '${method}'`);
-    for (const arg of args) {
-      validateExpr(arg, context);
-    }
-    return null;
-  }
-
-  if (args.length < vecSpec.minArgs || args.length > vecSpec.maxArgs) {
-    pushError(context, line, col, `${method} requires ${describeVectorMethodArgs(vecSpec)}`);
-  }
-
-  if (method === "push_back") {
-    validateExpr(args[0] ?? null, context, vectorElementType(receiverType));
-  } else if (method === "resize") {
-    validateExpr(args[0] ?? null, context, "int");
-  }
-
-  switch (vecSpec.returns) {
-    case "void":
-      return { kind: "PrimitiveType", name: "void" };
-    case "int":
-      return { kind: "PrimitiveType", name: "int" };
-    case "bool":
-      return { kind: "PrimitiveType", name: "bool" };
-    case "element":
-      return vectorElementType(receiverType);
-  }
-}
-
-function validateRangeBuiltin(
-  builtin: Extract<ReturnType<typeof getBuiltinFreeFunctionSpec>, { kind: "range_algorithm" }>,
-  args: ExprNode[],
-  line: number,
-  col: number,
-  context: ValidationContext,
-  validateExpr: ValidateExprFn,
-  inferExprType: InferExprTypeFn,
-): TypeNode | null {
-  if (args.length < builtin.minArgs || args.length > builtin.maxArgs) {
-    pushError(
-      context,
-      line,
-      col,
-      `${builtin.name} requires ${describeBuiltinArity(builtin)} arguments`,
-    );
-  }
-
-  const rangeType = validateVectorRangeArgs(
-    args[0],
-    args[1],
-    builtin.name,
-    context,
-    line,
-    col,
-    validateExpr,
-    inferExprType,
-  );
-
-  if (builtin.name === "fill") {
-    validateExpr(
-      args[2] ?? null,
-      context,
-      rangeType === null ? undefined : vectorElementType(rangeType),
-    );
-  } else if (builtin.name === "sort" && args[2] !== undefined) {
-    const comparator = args[2];
-    if (
-      !(
-        comparator.kind === "TemplateCallExpr" &&
-        getBuiltinTemplateComparatorSpec(comparator.callee.template) !== null &&
-        comparator.args.length === 0
-      )
-    ) {
-      pushError(context, comparator.line, comparator.col, "unsupported sort comparator");
-    }
-  }
-
-  return { kind: "PrimitiveType", name: "void" };
-}
-
-function validateVectorRangeArgs(
-  beginExpr: ExprNode | undefined,
-  endExpr: ExprNode | undefined,
-  callee: string,
-  context: ValidationContext,
-  line: number,
-  col: number,
-  validateExpr: ValidateExprFn,
-  inferExprType: InferExprTypeFn,
-): VectorTypeNode | null {
-  if (
-    beginExpr === undefined ||
-    endExpr === undefined ||
-    beginExpr.kind !== "MethodCallExpr" ||
-    endExpr.kind !== "MethodCallExpr" ||
-    beginExpr.method !== "begin" ||
-    endExpr.method !== "end" ||
-    beginExpr.args.length !== 0 ||
-    endExpr.args.length !== 0
-  ) {
-    pushError(context, line, col, `${callee} requires vector begin/end iterators`);
-    if (beginExpr !== undefined) {
-      validateExpr(beginExpr, context);
-    }
-    if (endExpr !== undefined) {
-      validateExpr(endExpr, context);
-    }
-    return null;
-  }
-
-  if (!sameReceiver(beginExpr.receiver, endExpr.receiver)) {
-    pushError(context, line, col, `${callee} requires iterators from the same vector`);
-  }
-
-  const receiverType = inferExprType(beginExpr.receiver, context);
-  if (receiverType === null) {
-    return null;
-  }
-  if (!isVectorType(receiverType)) {
-    pushError(context, line, col, `${callee} requires a vector range`);
-    return null;
-  }
-  return receiverType;
-}
-
-function sameReceiver(left: ExprNode, right: ExprNode): boolean {
-  return left.kind === "Identifier" && right.kind === "Identifier" && left.name === right.name;
+  return checkVectorMethod(receiverType, method, args, line, col, ctx);
 }
 
 export function validateTemplateFunctionCall(
@@ -471,12 +171,11 @@ export function validateTemplateFunctionCall(
   validateInstantiatedFn: (fn: FunctionDeclNode, context: ValidationContext) => void,
 ): TypeNode | null {
   if (args.length !== templateFn.params.length) {
-    pushError(
-      context,
+    context.errors.push({
       line,
       col,
-      `'${templateFn.name}' requires ${templateFn.params.length.toString()} argument${templateFn.params.length === 1 ? "" : "s"}`,
-    );
+      message: `'${templateFn.name}' requires ${templateFn.params.length.toString()} argument${templateFn.params.length === 1 ? "" : "s"}`,
+    });
     for (const arg of args) validateExpr(arg, context);
     return null;
   }
@@ -484,15 +183,17 @@ export function validateTemplateFunctionCall(
   const argTypes = args.map((arg) => inferExprType(arg, context));
   const map = inferTypeArgs(templateFn.typeParams, templateFn.params, argTypes);
   if (map === null) {
-    pushError(context, line, col, `cannot deduce template arguments for '${templateFn.name}'`);
+    context.errors.push({
+      line,
+      col,
+      message: `cannot deduce template arguments for '${templateFn.name}'`,
+    });
     for (const arg of args) validateExpr(arg, context);
     return null;
   }
 
   const key = instantiationKey(templateFn.name, map, templateFn.typeParams);
-  if (context.instantiatingTemplates.has(key)) {
-    return null;
-  }
+  if (context.instantiatingTemplates.has(key)) return null;
 
   context.instantiatingTemplates.add(key);
   const instantiated = instantiateFunction(templateFn, map);
@@ -507,8 +208,4 @@ export function validateTemplateFunctionCall(
   context.instantiatingTemplates.delete(key);
 
   return instantiated.returnType;
-}
-
-function pushError(context: ValidationContext, line: number, col: number, message: string): void {
-  context.errors.push({ line, col, message });
 }
