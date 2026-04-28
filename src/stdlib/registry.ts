@@ -49,12 +49,6 @@ export type BuiltinTemplateComparatorSpec = {
   callArgs: number;
 };
 
-export type BuiltinFreeFunctionSpec =
-  | BuiltinRangeAlgorithmSpec
-  | BuiltinValueFunctionSpec
-  | BuiltinTemplateFactorySpec
-  | BuiltinTemplateComparatorSpec;
-
 const SUPPORTED_TEMPLATE_TYPE_SPECS: Record<SupportedTemplateTypeName, SupportedTemplateTypeSpec> =
   {
     vector: { kind: "template_type", name: "vector", arity: 1 },
@@ -113,13 +107,6 @@ const BUILTIN_TEMPLATE_COMPARATOR_SPECS: Record<
   },
 };
 
-const BUILTIN_FREE_FUNCTION_SPECS: Record<string, BuiltinFreeFunctionSpec> = {
-  ...BUILTIN_VALUE_FUNCTION_SPECS,
-  ...BUILTIN_TEMPLATE_FACTORY_SPECS,
-  ...BUILTIN_RANGE_ALGORITHM_SPECS,
-  ...BUILTIN_TEMPLATE_COMPARATOR_SPECS,
-};
-
 export function getSupportedTemplateTypeSpec(value: string): SupportedTemplateTypeSpec | null {
   return SUPPORTED_TEMPLATE_TYPE_SPECS[value as SupportedTemplateTypeName] ?? null;
 }
@@ -144,10 +131,6 @@ export function getBuiltinTemplateComparatorSpec(
   value: string,
 ): BuiltinTemplateComparatorSpec | null {
   return BUILTIN_TEMPLATE_COMPARATOR_SPECS[value as BuiltinTemplateComparatorName] ?? null;
-}
-
-export function getBuiltinFreeFunctionSpec(value: string): BuiltinFreeFunctionSpec | null {
-  return BUILTIN_FREE_FUNCTION_SPECS[value] ?? null;
 }
 
 export function describeBuiltinArity(spec: { minArgs: number; maxArgs: number }): string {
@@ -184,8 +167,4 @@ export function isBuiltinTemplateComparatorName(
   value: string,
 ): value is BuiltinTemplateComparatorName {
   return getBuiltinTemplateComparatorSpec(value) !== null;
-}
-
-export function isBuiltinFreeFunctionName(value: string): boolean {
-  return getBuiltinFreeFunctionSpec(value) !== null;
 }

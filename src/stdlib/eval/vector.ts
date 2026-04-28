@@ -36,6 +36,7 @@ export function evalVectorConstructor(
 }
 
 export function evalVectorMethod(
+  receiver: RuntimeValue,
   method: string,
   args: ExprNode[],
   vStore: { type: VectorTypeNode; values: RuntimeValue[] },
@@ -47,7 +48,7 @@ export function evalVectorMethod(
   if (args.length < vecSpec.minArgs || args.length > vecSpec.maxArgs) {
     ctx.fail(`${method} requires ${describeVectorMethodArgs(vecSpec)}`, line);
   }
-  return applyMethod(vecSpec.name, args, vStore, line, ctx);
+  return applyMethod(receiver, vecSpec.name, args, vStore, line, ctx);
 }
 
 registerTemplateCall("vector", (expr, ctx) => {
@@ -65,6 +66,7 @@ registerMethodHandler({
     if (store === undefined) ctx.fail("invalid array reference", line);
     if (!isVectorType(store.type)) ctx.fail(`method '${method}' is not supported for fixed array`, line);
     return evalVectorMethod(
+      receiver,
       method,
       args,
       store as { type: VectorTypeNode; values: RuntimeValue[] },
@@ -75,6 +77,7 @@ registerMethodHandler({
 });
 
 function applyMethod(
+  receiver: RuntimeValue,
   method: VectorMethodName,
   args: ExprNode[],
   vStore: { type: VectorTypeNode; values: RuntimeValue[] },
@@ -82,6 +85,9 @@ function applyMethod(
   ctx: EvalCtx,
 ): RuntimeValue {
   switch (method) {
+    case "begin":
+    case "end":
+      return receiver;
     case "push_back": {
       const value = ctx.castToElementType(
         ctx.evaluateExpr(args[0] as ExprNode),

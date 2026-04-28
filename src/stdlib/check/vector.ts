@@ -35,11 +35,6 @@ export function checkVectorMethod(
 ): TypeNode | null {
   if (!isVectorType(receiverType)) return null;
 
-  if (method === "begin" || method === "end") {
-    if (args.length !== 0) ctx.pushError(line, col, `${method} requires no arguments`);
-    return receiverType;
-  }
-
   const vecSpec = getVectorMethodSpec(method);
   if (vecSpec === null) {
     ctx.pushError(line, col, `unknown vector method '${method}'`);
@@ -65,6 +60,8 @@ export function checkVectorMethod(
       return { kind: "PrimitiveType", name: "bool" };
     case "element":
       return vectorElementType(receiverType);
+    case "self":
+      return receiverType;
   }
 }
 
