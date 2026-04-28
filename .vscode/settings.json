@@ -40,5 +40,7 @@
   "editor.cursorSmoothCaretAnimation": "on",
   "workbench.tree.indent": 20,
   "breadcrumbs.enabled": true,
-  "explorer.compactFolders": false
+  "explorer.compactFolders": false,
+  "terminal.integrated.enablePersistentSessions": false,
+  "terminal.integrated.persistentSessionReviveProcess": "never"  
 }
