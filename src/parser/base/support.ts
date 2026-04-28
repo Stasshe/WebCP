@@ -6,12 +6,13 @@ import type {
   ExprNode,
   ForInitNode,
   RangeForStmtNode,
+  TemplateArgNode,
+  TemplateIdExprNode,
   Token,
   TypeNode,
   VarDeclNode,
-  VectorDeclNode,
 } from "@/types";
-import { isVectorType } from "@/types";
+import { isTemplateInstanceType } from "@/types";
 import { BaseParserTypeSupport } from "./type-support";
 
 export abstract class BaseParserSupport extends BaseParserTypeSupport {
@@ -60,7 +61,7 @@ export abstract class BaseParserSupport extends BaseParserTypeSupport {
 
   protected parseDeclarationList(
     type: TypeNode,
-  ): Array<VarDeclNode | ArrayDeclNode | VectorDeclNode> | null {
+  ): Array<VarDeclNode | ArrayDeclNode> | null {
     const declarations = this.parseDeclaratorList(type);
     if (declarations === null) {
       return null;
@@ -73,8 +74,8 @@ export abstract class BaseParserSupport extends BaseParserTypeSupport {
 
   protected parseDeclaratorList(
     type: TypeNode,
-  ): Array<VarDeclNode | ArrayDeclNode | VectorDeclNode> | null {
-    const declarations: Array<VarDeclNode | ArrayDeclNode | VectorDeclNode> = [];
+  ): Array<VarDeclNode | ArrayDeclNode> | null {
+    const declarations: Array<VarDeclNode | ArrayDeclNode> = [];
     const first = this.parseSingleDeclarator(type);
     if (first === null) {
       return null;
@@ -115,7 +116,7 @@ export abstract class BaseParserSupport extends BaseParserTypeSupport {
 
   protected parseSingleDeclarator(
     type: TypeNode,
-  ): VarDeclNode | ArrayDeclNode | VectorDeclNode | null {
+  ): VarDeclNode | ArrayDeclNode | null {
     const declarator = this.parseNamedDeclarator(type, { allowUnsizedArrays: false });
     if (declarator === null) {
       return null;
@@ -128,14 +129,19 @@ export abstract class BaseParserSupport extends BaseParserTypeSupport {
         false,
       );
     }
-    if (isVectorType(declarator.type)) {
-      return this.finishVectorDecl(declarator.type, declarator.nameToken, false);
-    }
     return this.parseSingleVarDeclarator(declarator.type, declarator.nameToken);
   }
 
   protected parseSingleVarDeclarator(type: TypeNode, nameToken: Token): VarDeclNode | null {
-    const initializer = this.matchSymbol("=") ? this.parseExpression() : null;
+    let initializer: ExprNode | null = null;
+    if (this.matchSymbol("=")) {
+      initializer = this.parseExpression();
+    } else if (isTemplateInstanceType(type) && this.checkSymbol("(")) {
+      initializer = this.parseTemplateConstructorCall(type, nameToken);
+      if (initializer === null) {
+        return null;
+      }
+    }
     return {
       kind: "VarDecl",
       type,
@@ -194,33 +200,39 @@ export abstract class BaseParserSupport extends BaseParserTypeSupport {
     };
   }
 
-  protected finishVectorDecl(
-    type: VectorDeclNode["type"],
-    nameToken: Token,
-    consumeTerminator = true,
-  ): VectorDeclNode | null {
-    const constructorArgs: ExprNode[] = [];
-    if (this.matchSymbol("(")) {
-      if (!this.matchSymbol(")")) {
-        constructorArgs.push(this.parseExpression());
-        if (this.matchSymbol(",")) {
-          constructorArgs.push(this.parseExpression());
+  protected parseTemplateConstructorCall(type: TypeNode, nameToken: Token): ExprNode | null {
+    if (!isTemplateInstanceType(type) || !this.consumeSymbol("(", "expected '(' after constructor")) {
+      return null;
+    }
+    const args: ExprNode[] = [];
+    if (!this.matchSymbol(")")) {
+      while (true) {
+        args.push(this.parseExpression());
+        if (this.matchSymbol(")")) {
+          break;
         }
-        if (!this.consumeSymbol(")", "expected ')' after vector constructor args")) {
+        if (!this.consumeSymbol(",", "expected ',' or ')' in constructor argument list")) {
           return null;
         }
       }
     }
-
-    if (consumeTerminator && !this.consumeSymbol(";", "expected ';' after vector declaration")) {
-      return null;
-    }
-
+    const templateArgs: TemplateArgNode[] = type.templateArgs.map((templateArg) => ({
+      kind: "TypeTemplateArg",
+      type: templateArg,
+    }));
+    const callee: TemplateIdExprNode = {
+      kind: "TemplateIdExpr",
+      template: type.template.name,
+      templateArgs,
+      line: nameToken.line,
+      col: nameToken.col,
+      endLine: this.previous().endLine,
+      endCol: this.previous().endCol,
+    };
     return {
-      kind: "VectorDecl",
-      type,
-      name: nameToken.text,
-      constructorArgs,
+      kind: "TemplateCallExpr",
+      callee,
+      args,
       ...this.rangeToPrevious(nameToken),
     };
   }

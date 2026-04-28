@@ -1,9 +1,8 @@
-import type { ArrayDeclNode, PrimitiveTypeNode, Token, TypeNode, VectorDeclNode } from "@/types";
+import type { ArrayDeclNode, PrimitiveTypeNode, Token, TypeNode } from "@/types";
 import {
   arrayType,
   isPrimitiveType,
   isTemplateInstanceType,
-  isVectorType,
   pointerType,
   templateInstanceType,
   primitiveType,
@@ -205,11 +204,6 @@ export abstract class BaseParserTypeSupport extends BaseParserCore {
       cursor += 1;
     }
     return false;
-  }
-
-  protected parseVectorType(): VectorDeclNode["type"] | null {
-    const type = this.parseTemplateInstanceType();
-    return type !== null && isVectorType(type) ? type : null;
   }
 
   protected parseTemplateInstanceType(): TypeNode | null {

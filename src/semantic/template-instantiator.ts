@@ -14,7 +14,6 @@ import type {
   TemplateFunctionDeclNode,
   TypeNode,
   VarDeclNode,
-  VectorDeclNode,
   WhileStmtNode,
 } from "@/types";
 import { isPointerType, isReferenceType, isTemplateInstanceType } from "@/types";
@@ -75,8 +74,6 @@ function substituteStmt(stmt: StatementNode, map: TypeArgMap): StatementNode {
       return substituteVarDecl(stmt, map);
     case "ArrayDecl":
       return substituteArrayDecl(stmt, map);
-    case "VectorDecl":
-      return substituteVectorDecl(stmt, map);
     case "DeclGroupStmt":
       return substituteDeclGroup(stmt, map);
     case "RangeForStmt":
@@ -109,19 +106,12 @@ function substituteArrayDecl(decl: ArrayDeclNode, map: TypeArgMap): ArrayDeclNod
   return { ...decl, type: newType };
 }
 
-function substituteVectorDecl(decl: VectorDeclNode, map: TypeArgMap): VectorDeclNode {
-  const newType = substituteTypeNode(decl.type, map);
-  if (newType.kind !== "TemplateInstanceType" || newType.template.name !== "vector") return decl;
-  return { ...decl, type: newType as VectorDeclNode["type"] };
-}
-
 function substituteDeclGroup(stmt: DeclGroupStmtNode, map: TypeArgMap): DeclGroupStmtNode {
   return {
     ...stmt,
     declarations: stmt.declarations.map((d) => {
       if (d.kind === "VarDecl") return substituteVarDecl(d, map);
-      if (d.kind === "ArrayDecl") return substituteArrayDecl(d, map);
-      return substituteVectorDecl(d, map);
+      return substituteArrayDecl(d, map);
     }),
   };
 }

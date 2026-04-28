@@ -1,6 +1,5 @@
 import { RuntimeTrap } from "@/runtime/errors";
 import type { RuntimeLocation, RuntimeValue } from "@/runtime/value";
-import { vectorElementType } from "@/stdlib/template-types";
 import type {
   ArrayDeclNode,
   AssignTargetNode,
@@ -13,7 +12,6 @@ import type {
   SourceRange,
   TemplateFunctionDeclNode,
   TypeNode,
-  VectorDeclNode,
 } from "@/types";
 import { isPrimitiveType } from "@/types";
 
@@ -153,45 +151,6 @@ export abstract class InterpreterRuntimeCore {
     const arrayValue = this.createFixedArrayValue(decl.type, decl.dimensions, decl.line);
     this.applyArrayInitializers(arrayValue, decl.initializers, decl.line);
     this.defineInScope(scope, decl.name, arrayValue, decl.line);
-  }
-
-  protected defineVectorDecl(decl: VectorDeclNode, scope: Scope): void {
-    const args = decl.constructorArgs.map((arg) => this.evaluateExpr(arg));
-    const vectorValue = this.constructVectorValue(decl.type, args, decl.line);
-    this.defineInScope(scope, decl.name, vectorValue, decl.line);
-  }
-
-  protected constructVectorValue(
-    type: VectorDeclNode["type"],
-    args: RuntimeValue[],
-    line: number,
-  ): RuntimeValue {
-    let values: RuntimeValue[] = [];
-
-    if (args.length === 1) {
-      const size = this.expectInt(args[0] as RuntimeValue, line).value;
-      if (size < 0n) {
-        this.fail("vector size must be non-negative", line);
-      }
-      values = Array.from({ length: Number(size) }, () =>
-        this.defaultValueForType(vectorElementType(type), line),
-      );
-    } else if (args.length === 2) {
-      const size = this.expectInt(args[0] as RuntimeValue, line).value;
-      if (size < 0n) {
-        this.fail("vector size must be non-negative", line);
-      }
-      const fillValue = this.castToElementType(
-        args[1] as RuntimeValue,
-        vectorElementType(type),
-        line,
-      );
-      values = Array.from({ length: Number(size) }, () => fillValue);
-    } else if (args.length > 2) {
-      this.fail("too many arguments for vector constructor", line);
-    }
-
-    return this.allocateArray(type, values);
   }
 
   protected expectInt(value: RuntimeValue, line: number): Extract<RuntimeValue, { kind: "int" }> {

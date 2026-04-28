@@ -103,7 +103,7 @@ export type ProgramNode = NodeBase & {
   functions: (FunctionDeclNode | TemplateFunctionDeclNode)[];
 };
 
-export type GlobalDeclNode = VarDeclNode | ArrayDeclNode | VectorDeclNode;
+export type GlobalDeclNode = VarDeclNode | ArrayDeclNode;
 
 export type FunctionDeclNode = NodeBase & {
   kind: "FunctionDecl";
@@ -124,7 +124,6 @@ export type StatementNode =
   | DeclGroupStmtNode
   | VarDeclNode
   | ArrayDeclNode
-  | VectorDeclNode
   | RangeForStmtNode
   | IfStmtNode
   | ForStmtNode
@@ -144,7 +143,7 @@ export type BlockStmtNode = NodeBase & {
 
 export type DeclGroupStmtNode = NodeBase & {
   kind: "DeclGroupStmt";
-  declarations: Array<VarDeclNode | ArrayDeclNode | VectorDeclNode>;
+  declarations: Array<VarDeclNode | ArrayDeclNode>;
 };
 
 export type VarDeclNode = NodeBase & {
@@ -160,13 +159,6 @@ export type ArrayDeclNode = NodeBase & {
   name: string;
   dimensions: bigint[];
   initializers: ExprNode[];
-};
-
-export type VectorDeclNode = NodeBase & {
-  kind: "VectorDecl";
-  type: VectorTypeNode;
-  name: string;
-  constructorArgs: ExprNode[];
 };
 
 export type RangeForStmtNode = NodeBase & {

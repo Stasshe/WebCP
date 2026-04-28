@@ -156,12 +156,7 @@ class Interpreter extends InterpreterEvaluator {
       return;
     }
 
-    if (decl.kind === "ArrayDecl") {
-      this.defineArrayDecl(decl, this.globals);
-      return;
-    }
-
-    this.defineVectorDecl(decl, this.globals);
+    this.defineArrayDecl(decl, this.globals);
   }
 
   private executeBlock(block: { statements: StatementNode[] }, createScope: boolean): void {
@@ -201,9 +196,6 @@ class Interpreter extends InterpreterEvaluator {
       }
       case "ArrayDecl":
         this.defineArrayDecl(stmt, this.currentScope());
-        return;
-      case "VectorDecl":
-        this.defineVectorDecl(stmt, this.currentScope());
         return;
       case "RangeForStmt":
         this.executeRangeFor(stmt);

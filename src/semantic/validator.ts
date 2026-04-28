@@ -193,7 +193,6 @@ function validateStatement(stmt: StatementNode, context: ValidationContext): voi
       return;
     case "VarDecl":
     case "ArrayDecl":
-    case "VectorDecl":
       validateDecl(stmt, context);
       return;
     case "RangeForStmt":
@@ -266,15 +265,13 @@ function validateStatement(stmt: StatementNode, context: ValidationContext): voi
 }
 
 function validateDecl(
-  stmt:
-    | Extract<StatementNode, { kind: "VarDecl" | "ArrayDecl" | "VectorDecl" }>
-    | ProgramNode["globals"][number],
+  stmt: Extract<StatementNode, { kind: "VarDecl" | "ArrayDecl" }> | ProgramNode["globals"][number],
   context: ValidationContext,
 ): void {
   switch (stmt.kind) {
     case "VarDecl":
       validateTypeNode(stmt.type, stmt.line, stmt.col, context);
-      if (isArrayType(stmt.type) || isVectorType(stmt.type)) {
+      if (isArrayType(stmt.type)) {
         pushError(
           context,
           stmt.line,
@@ -283,6 +280,9 @@ function validateDecl(
         );
       } else if (containsVoid(stmt.type)) {
         pushError(context, stmt.line, stmt.col, "variable type cannot be void");
+      }
+      if (containsReferenceBelowTopLevel(stmt.type)) {
+        pushError(context, stmt.line, stmt.col, "array/vector element type cannot be reference");
       }
       if (isReferenceType(stmt.type)) {
         if (stmt.initializer === null) {
@@ -305,22 +305,6 @@ function validateDecl(
       }
       for (const init of stmt.initializers) {
         validateExpr(init, context, baseElementType(stmt.type));
-      }
-      defineSymbol(stmt.name, stmt.type, stmt.line, stmt.col, context);
-      return;
-    case "VectorDecl":
-      validateTypeNode(stmt.type, stmt.line, stmt.col, context);
-      if (containsVoid(stmt.type)) {
-        pushError(context, stmt.line, stmt.col, "vector element type cannot be void");
-      }
-      if (containsReferenceBelowTopLevel(vectorElementType(stmt.type))) {
-        pushError(context, stmt.line, stmt.col, "vector element type cannot be reference");
-      }
-      if (stmt.constructorArgs.length >= 1) {
-        validateExpr(stmt.constructorArgs[0] ?? null, context, "int");
-      }
-      if (stmt.constructorArgs.length >= 2) {
-        validateExpr(stmt.constructorArgs[1] ?? null, context, vectorElementType(stmt.type));
       }
       defineSymbol(stmt.name, stmt.type, stmt.line, stmt.col, context);
       return;
