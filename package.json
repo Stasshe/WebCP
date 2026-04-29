@@ -1,6 +1,6 @@
 {
   "name": "fluxa-webcp",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "type": "module",
   "description": "ts interpreter for a competitive-programming-focused C++ subset, with AST-level step execution, full state inspection, and GCC/Clang-style diagnostics.",
   "packageManager": "pnpm@10.33.0",
