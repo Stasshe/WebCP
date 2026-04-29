@@ -720,7 +720,10 @@ type DebugInfo = {
 ## 13. 文法（実装に即した EBNF）
 
 ```ebnf
-program       = { global_decl } { function } ;
+program       = { using_namespace_std } { global_decl } { function } ;
+
+(* using namespace std; のみ受理。型エイリアス（using T = X;）は非対応 *)
+using_namespace_std = "using" "namespace" "std" ";" ;
 
 (* グローバル宣言 *)
 global_decl   = var_decl | array_decl | vector_decl ;
@@ -735,7 +738,7 @@ type          = primitive_type
               | "vector" "<" type ">"
               | "pair" "<" type "," type ">"
               | "tuple" "<" type { "," type } ">" ;
-primitive_type = "int" | "long long" | "double" | "bool" | "string" | "void" ;
+primitive_type = "int" | "long long" | "double" | "bool" | "char" | "string" | "void" ;
 declarator    = { "*" } [ "&" ] ident { "[" [ int_lit ] "]" } ;
 
 (* 文 *)
@@ -915,7 +918,7 @@ type TemplateCallExprNode = {
 
 type LiteralExprNode = {
   kind: "Literal"
-  valueType: "int" | "double" | "bool" | "string"
+  valueType: "int" | "double" | "bool" | "char" | "string"
 }
 ```
 
@@ -925,12 +928,13 @@ type LiteralExprNode = {
 
 ### 15.1 現在サポートしている主な機能
 
-- `int` / `long long` / `double` / `bool` / `string`
-- 固定長配列、`vector`
+- `int` / `long long` / `double` / `bool` / `char` / `string`
+- 固定長配列、`vector`（`push_back`、`pop_back`、`size`、`back`、`empty`、`clear`、`resize`、`begin`/`end`）
+- `map<K,V>`（`m[key]` デフォルト挿入、`.size()`、range-for）
 - pointer / reference、基本的なポインタ演算
 - `pair<T, U>`、`tuple<T...>`、`make_pair`、`make_tuple`、`get<I>`
 - 限定的な関数テンプレート（`template<typename T> ...` + 型推論 / 明示テンプレート実引数呼び出し）
-- `if` / `for` / range-based `for` / `while` / `break` / `continue`
+- `if` / `for` / range-based `for`（配列・`vector`・`map`・`string`）/ `while` / `break` / `continue`
 - 関数定義・再帰・グローバル変数
 - `cin` / `cout` / `cerr` / `endl`
 - `abs` / `max` / `min` / `swap` / `sort` / `reverse` / `fill`
@@ -941,6 +945,7 @@ type LiteralExprNode = {
 - クラステンプレート、変数テンプレート
 - 部分特殊化、明示特殊化、オーバーロード解決
 - `struct` / `class`
+- `using T = X;` 型エイリアス（`using namespace std;` のみ対応）
 - 一般の `auto` 変数宣言、構造化束縛
 - 参照戻り値
 - 固定長配列への `sort(a, a + n)`

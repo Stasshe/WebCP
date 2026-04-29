@@ -123,17 +123,19 @@ A precise specification lives in [`SPECIFICATION.md`](./SPECIFICATION.md).
 Briefly:
 
 - **Types** — `int` / `long long` (both 64-bit `BigInt` internally), `double`,
-  `bool`, `string`, fixed-length arrays, `vector<T>`, `map<K,V>`, `pair<T,U>`,
-  `tuple<T...>`, `T*`, `T&`.
-- **Control flow** — `if`/`else`, `for`, range-based `for`, `while`,
-  `break`, `continue`, `return`.
+  `bool`, `char`, `string`, fixed-length arrays, `vector<T>`, `map<K,V>`,
+  `pair<T,U>`, `tuple<T...>`, `T*`, `T&`.
+- **Control flow** — `if`/`else`, `for`, range-based `for` (over arrays,
+  `vector`, `map`, `string`), `while`, `break`, `continue`, `return`.
 - **Functions** — value, reference, and pointer parameters; recursion;
   global variables.
 - **I/O** — `cin`, `cout`, `cerr`, `endl`. Common `sync_with_stdio` /
   `tie` incantations are accepted as no-ops.
 - **Standard library** — `abs`, `max`, `min`, `swap`, `sort` (with
   `greater<int>()` or `greater<>()`), `reverse`, `fill`, `make_pair`,
-  `make_tuple`, `get<I>`.
+  `make_tuple`, `get<I>`. Vector methods: `push_back`, `pop_back`, `size`,
+  `back`, `empty`, `clear`, `resize`, `begin`/`end` (for `sort`/`reverse`/`fill`).
+  Map: `m[key]` (default-insert), `.size()`, range-`for` (yields `pair<K,V>`).
 - **Preprocessor** — `#include <bits/stdc++.h>`, `#include <iostream>`,
   `#include <vector>`, `#include <map>`, and `#define`.
 
@@ -143,7 +145,9 @@ The following are **deliberately** unsupported, and are surfaced as
 compile errors rather than ignored:
 
 - Dynamic memory: `new`, `delete`, `malloc`, `free`
-- User-defined `struct`, `class`, or templates
+- User-defined `struct` or `class`; class/variable templates, partial/explicit
+  specialization, overload resolution (function templates with type inference
+  and explicit template arguments are **limited**-supported — see spec)
 - Function pointers, namespaces (other than `using namespace std;`)
 - C-style and `static_cast` casts
 - Reference return values
@@ -198,9 +202,7 @@ without ceremony.
 
 ## Errors
 
-**Compile errors** follow Clang format, so what you learn here
-transfers directly to a real toolchain:
-Maybe I will change this into GCC format in the future. 
+**Compile errors** follow GCC/Clang format:
 
 ```
 main.cpp:7:14: error: 'x' was not declared in this scope
@@ -248,7 +250,8 @@ pnpm --filter web build  # production build
 │   ├── parser/
 │   ├── runtime/            # Value union, RuntimeError, CompileError
 │   ├── interpreter/        # evaluator and execution engine
-│   ├── semantic/validator.ts
+│   ├── semantic/           # type checking, template instantiation
+│   ├── stdlib/             # built-in function metadata, eval/check registries
 │   └── debugger/session.ts
 ├── apps/web/               # Next.js playground
 └── tests/                  # Vitest, organized by feature
