@@ -209,13 +209,21 @@ function substituteTemplateArg(arg: TemplateArgNode, map: TypeArgMap): TemplateA
 }
 
 function substituteVarDecl(decl: VarDeclNode, map: TypeArgMap): VarDeclNode {
-  return { ...decl, type: substituteTypeNode(decl.type, map) };
+  return {
+    ...decl,
+    type: substituteTypeNode(decl.type, map),
+    initializer: decl.initializer !== null ? substituteExpr(decl.initializer, map) : null,
+  };
 }
 
 function substituteArrayDecl(decl: ArrayDeclNode, map: TypeArgMap): ArrayDeclNode {
   const newType = substituteTypeNode(decl.type, map);
   if (newType.kind !== "ArrayType") return decl;
-  return { ...decl, type: newType };
+  return {
+    ...decl,
+    type: newType,
+    initializers: decl.initializers.map((e) => substituteExpr(e, map)),
+  };
 }
 
 function substituteDeclGroup(stmt: DeclGroupStmtNode, map: TypeArgMap): DeclGroupStmtNode {
@@ -232,31 +240,47 @@ function substituteRangeFor(stmt: RangeForStmtNode, map: TypeArgMap): RangeForSt
   return {
     ...stmt,
     itemType: stmt.itemType !== null ? substituteTypeNode(stmt.itemType, map) : null,
+    source: substituteExpr(stmt.source, map),
+    body: substituteBlock(stmt.body, map),
   };
 }
 
 function substituteIf(stmt: IfStmtNode, map: TypeArgMap): IfStmtNode {
   return {
     ...stmt,
-    branches: stmt.branches.map((b) => ({ ...b, thenBlock: substituteBlock(b.thenBlock, map) })),
+    branches: stmt.branches.map((b) => ({
+      ...b,
+      condition: substituteExpr(b.condition, map),
+      thenBlock: substituteBlock(b.thenBlock, map),
+    })),
     elseBlock: stmt.elseBlock !== null ? substituteBlock(stmt.elseBlock, map) : null,
   };
 }
 
 function substituteFor(stmt: ForStmtNode, map: TypeArgMap): ForStmtNode {
-  const init = substituteForInit(stmt.init, map);
-  return { ...stmt, init, body: substituteBlock(stmt.body, map) };
+  return {
+    ...stmt,
+    init: substituteForInit(stmt.init, map),
+    condition: stmt.condition !== null ? substituteExpr(stmt.condition, map) : null,
+    update: stmt.update !== null ? substituteExpr(stmt.update, map) : null,
+    body: substituteBlock(stmt.body, map),
+  };
 }
 
 function substituteForInit(init: ForInitNode, map: TypeArgMap): ForInitNode {
   if (init.kind === "varDecl") return { ...init, value: substituteVarDecl(init.value, map) };
   if (init.kind === "declGroup")
     return { ...init, value: init.value.map((d) => substituteVarDecl(d, map)) };
+  if (init.kind === "expr") return { ...init, value: substituteExpr(init.value, map) };
   return init;
 }
 
 function substituteWhile(stmt: WhileStmtNode, map: TypeArgMap): WhileStmtNode {
-  return { ...stmt, body: substituteBlock(stmt.body, map) };
+  return {
+    ...stmt,
+    condition: substituteExpr(stmt.condition, map),
+    body: substituteBlock(stmt.body, map),
+  };
 }
 
 function substituteReturn(stmt: ReturnStmtNode, map: TypeArgMap): ReturnStmtNode {

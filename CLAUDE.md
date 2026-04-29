@@ -40,6 +40,7 @@ src/
 ├── interpreter/
 │   ├── index.ts
 │   ├── evaluator.ts
+│   ├── builtin-eval.ts        ← stdlib dispatch への薄い橋渡し
 │   └── runtime/
 │       ├── index.ts
 │       ├── core.ts
@@ -48,6 +49,7 @@ src/
 ├── semantic/
 │   ├── validator.ts
 │   ├── builtin-checker.ts
+│   ├── template-instantiator.ts  ← 型引数推論・単相化・substituteExpr
 │   ├── type-compat.ts
 │   └── type-utils.ts
 ├── stdlib/
@@ -56,8 +58,28 @@ src/
 │   ├── template-types.ts
 │   ├── check-registry.ts
 │   ├── eval-registry.ts
+│   ├── check-context.ts
+│   ├── eval-context.ts
+│   ├── vector-methods.ts
+│   ├── map-methods.ts
+│   ├── pair-members.ts
+│   ├── check/
+│   │   ├── index.ts
+│   │   ├── factories.ts
+│   │   ├── get.ts
+│   │   ├── methods.ts
+│   │   ├── range-algorithms.ts
+│   │   ├── value-functions.ts
+│   │   └── vector.ts
+│   ├── eval/
+│   │   ├── index.ts
+│   │   ├── factories.ts
+│   │   ├── get.ts
+│   │   ├── pair-map.ts
+│   │   ├── range-algorithms.ts
+│   │   ├── value-functions.ts
+│   │   └── vector.ts
 │   └── builtins/
-│       ├── index.ts
 │       └── compare.ts
 └── debugger/
     └── session.ts

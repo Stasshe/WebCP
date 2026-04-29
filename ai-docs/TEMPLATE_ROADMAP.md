@@ -24,7 +24,7 @@
 - クラステンプレートと変数テンプレートは未対応
 - 部分特殊化、明示特殊化、完全なオーバーロード解決は未対応
 - `sort` / `reverse` / `fill` は iterator ベースになったが、依然として full-range `begin()/end()` に限定している
-- `vector` 宣言は現在も `VectorDeclNode` を持つ
+- `vector` 宣言は `VarDeclNode` に統合済み（`VectorDeclNode` は削除済み）
 - `__iterator` は内部 template type として導入しているが、ユーザー定義 iterator までは扱わない
 
 このため、真面目にテンプレートをやるには「既存の専用型を少し足す」のではなく、

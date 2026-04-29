@@ -188,7 +188,8 @@ void chmin(T& a, T b) {
 - 型パラメータ宣言は `template<typename T, ...>` のみ対応する。`class` は未対応
 - 呼び出しは `chmin(x, y)` のような型推論付き呼び出しと `chmin<int>(x, y)` のような明示テンプレート実引数呼び出しに対応する
 - 同一テンプレート引数は厳密に一致する必要があり、`same('a', 1)` のような競合推論はコンパイルエラー
-- 現在の実装は関数テンプレートの単相化に相当する仕組みを持つが、サポート対象は関数テンプレートのみ
+- 単相化（monomorphization）は呼び出しごとに実施する。型引数置換（`substituteExpr`）は式・文の全ノードに再帰適用する（変数宣言初期化子、配列初期化子、if/for/while/range-for の条件・更新・ソース式を含む）
+- サポート対象は関数テンプレートのみ
 - 未対応: クラステンプレート、部分特殊化、明示特殊化、オーバーロード解決
 
 ---
@@ -847,14 +848,13 @@ type ProgramNode = {
   functions: (FunctionDeclNode | TemplateFunctionDeclNode)[]
 }
 
-type GlobalDeclNode = VarDeclNode | ArrayDeclNode | VectorDeclNode
+type GlobalDeclNode = VarDeclNode | ArrayDeclNode
 
 type StatementNode =
   | BlockStmtNode
   | DeclGroupStmtNode
   | VarDeclNode
   | ArrayDeclNode
-  | VectorDeclNode
   | RangeForStmtNode
   | IfStmtNode
   | ForStmtNode
@@ -877,6 +877,7 @@ type ExprNode =
   | CallExprNode
   | TemplateIdExprNode
   | TemplateCallExprNode
+  | MemberAccessExprNode
   | MethodCallExprNode
   | IndexExprNode
   | IdentifierExprNode
@@ -886,6 +887,7 @@ type AssignTargetNode =
   | IdentifierExprNode
   | IndexExprNode
   | DerefExprNode
+  | MemberAccessExprNode
   | TemplateCallExprNode
 
 type TemplateFunctionDeclNode = {
@@ -942,7 +944,6 @@ type LiteralExprNode = {
 - 一般の `auto` 変数宣言、構造化束縛
 - 参照戻り値
 - 固定長配列への `sort(a, a + n)`
-- `vector` 宣言だけ `VectorDeclNode` を使う専用 AST
 - internal iterator は `__iterator<...>` として内部表現されるが、ユーザー定義 iterator は未対応
 - 条件付きプリプロセッサ（`#if`, `#ifdef`, `#ifndef`, `#else`, `#endif`）
 - 条件付きブレークポイント
